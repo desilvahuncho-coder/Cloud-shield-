@@ -1,0 +1,49 @@
+name: CloudShield AWS Automation Engine
+
+on:
+  workflow_dispatch: # Allows manual trigger execution anytime from your phone
+  schedule:
+    - cron: '0 * * * *' # Runs automatically every hour to re-compute projections
+
+jobs:
+  build-and-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Files
+        uses: actions/checkout@v3
+
+      - name: Initialize Environment Runtime
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Secure Enterprise Connectors
+        run: |
+          pip install boto3
+
+      - name: Compute Multi-User Data Engine
+        env:
+          # Injects the 5 secure slots into the runtime variables safely
+          SLOT1_AWS_ACCESS_KEY_ID: ${{ secrets.SLOT1_AWS_ACCESS_KEY_ID }}
+          SLOT1_AWS_SECRET_ACCESS_KEY: ${{ secrets.SLOT1_AWS_SECRET_ACCESS_KEY }}
+          
+          SLOT2_AWS_ACCESS_KEY_ID: ${{ secrets.SLOT2_AWS_ACCESS_KEY_ID }}
+          SLOT2_AWS_SECRET_ACCESS_KEY: ${{ secrets.SLOT2_AWS_SECRET_ACCESS_KEY }}
+          
+          SLOT3_AWS_ACCESS_KEY_ID: ${{ secrets.SLOT3_AWS_ACCESS_KEY_ID }}
+          SLOT3_AWS_SECRET_ACCESS_KEY: ${{ secrets.SLOT3_AWS_SECRET_ACCESS_KEY }}
+          
+          SLOT4_AWS_ACCESS_KEY_ID: ${{ secrets.SLOT4_AWS_ACCESS_KEY_ID }}
+          SLOT4_AWS_SECRET_ACCESS_KEY: ${{ secrets.SLOT4_AWS_SECRET_ACCESS_KEY }}
+          
+          SLOT5_AWS_ACCESS_KEY_ID: ${{ secrets.SLOT5_AWS_ACCESS_KEY_ID }}
+          SLOT5_AWS_SECRET_ACCESS_KEY: ${{ secrets.SLOT5_AWS_SECRET_ACCESS_KEY }}
+        run: python aws_engine.py
+
+      - name: Deploy Live Changes to Static Database Link
+        run: |
+          git config --global user.name "CloudShield Core Engine"
+          git config --global user.email "engine@cloudshield.io"
+          git add data_*.json
+          git commit -m "Automated synchronization of user slots [skip ci]" || exit 0
+          git push
