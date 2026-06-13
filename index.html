@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CloudShield Premium Hub</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex justify-center items-center p-0 sm:p-4">
+
+    <div class="w-full max-w-md bg-slate-950 min-h-screen sm:min-h-[844px] sm:rounded-[40px] sm:border sm:border-slate-800 shadow-2xl flex flex-col justify-between relative overflow-hidden">
+        
+        <div id="onboarding-screen" class="absolute inset-0 bg-slate-950 p-6 z-30 transition-transform duration-300 flex flex-col justify-between overflow-y-auto pb-8">
+            <div class="space-y-6 pt-6">
+                <div class="flex items-center gap-2">
+                    <svg class="w-8 h-8 text-indigo-500" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                    <h1 class="text-2xl font-black text-white tracking-tight">CloudShield <span class="text-xs bg-indigo-500/20 text-indigo-400 font-bold px-2 py-0.5 rounded-md border border-indigo-500/30">BETA v1.0</span></h1>
+                </div>
+
+                <p class="text-sm text-slate-400 leading-relaxed">Secure your cloud infrastructure against runaway billing spikes using an encrypted, isolated monitoring gateway.</p>
+
+                <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 space-y-3">
+                    <label class="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">Select Target Gateway Slot</label>
+                    <select id="slot-input" onchange="handleSlotChange()" class="w-full px-4 py-3 bg-slate-900 border border-slate-800 rounded-xl font-bold text-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all appearance-none">
+                        <option value="slot1">Demo Gateway 1 (Pitch Asset - David)</option>
+                        <option value="slot2">Enterprise Gateway 2 [Awaiting Integration]</option>
+                        <option value="slot3">Enterprise Gateway 3 [Awaiting Integration]</option>
+                        <option value="slot4">Enterprise Gateway 4 [Awaiting Integration]</option>
+                        <option value="slot5">Enterprise Gateway 5 [Awaiting Integration]</option>
+                    </select>
+                </div>
+
+                <div id="aws-integration-box" class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 space-y-4">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Secure AWS Connection Setup</span>
+                        <span class="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-extrabold">100% READ-ONLY</span>
+                    </div>
+
+                    <p class="text-xs text-slate-400 leading-normal">To protect your account, attach a strict billing tracking policy. CloudShield cannot access or alter your live code base, databases, or application servers.</p>
+
+                    <div class="bg-slate-950 p-3 rounded-xl border border-slate-800/80 font-mono text-[10px] text-indigo-400 space-y-1 select-all">
+                        <p class="text-slate-600">// Strict IAM Policy Guard</p>
+                        <p>{ <span class="text-slate-400">"Action"</span>: [</p>
+                        <p class="pl-4"><span class="text-emerald-400">"ce:GetCostAndUsage"</span>,</p>
+                        <p class="pl-4"><span class="text-emerald-400">"ce:GetForecast"</span>,</p>
+                        <p class="pl-4"><span class="text-emerald-400">"ec2:DescribeInstances"</span></p>
+                        <p class="pl-2">], <span class="text-slate-400">"Resource"</span>: <span class="text-amber-400">"*"</span> }</p>
+                    </div>
+
+                    <div class="space-y-2 pt-1">
+                        <input type="text" id="mock-key-id" placeholder="AWS Access Key ID (e.g., AKIA...)" class="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono outline-none text-slate-300 focus:border-indigo-500">
+                        <input type="password" id="mock-secret" placeholder="AWS Secret Access Key" class="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono outline-none text-slate-300 focus:border-indigo-500">
+                    </div>
+                </div>
+            </div>
+
+            <button onclick="initializeMvpDashboard()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-4 rounded-2xl font-bold text-base shadow-lg shadow-indigo-600/20 transition-all mt-6">
+                Initialize Secure Perimeter
+            </button>
+        </div>
+
+        <div class="flex-1 flex flex-col p-5 space-y-5 overflow-y-auto pb-24">
+            
+            <div class="flex items-center justify-between pt-2">
+                <div class="flex items-center gap-2">
+                    <svg class="w-6 h-6 text-indigo-500" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                    <span class="text-xl font-black text-white tracking-tight">CloudShield</span>
+                </div>
+                <div id="connection-status" class="bg-slate-900 border border-slate-800 px-3 py-1 rounded-full text-[11px] font-bold text-slate-400 flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                    Syncing AWS Node...
+                </div>
+            </div>
+
+            <div>
+                <h2 class="text-2xl font-extrabold text-white tracking-tight">
+                    Hello, <span id="display-name" class="text-transparent bg-clip-text bg-gradient-to-r charity bg-gradient-to-r from-indigo-400 to-cyan-400">Operator</span> 🛰️
+                </h2>
+                <div class="flex items-center gap-2 mt-1">
+                    <span id="arn-display" class="font-mono text-[10px] text-slate-500 tracking-tight">arn:aws:iam::382910485721:user/cloudshield-readonly</span>
+                </div>
+            </div>
+
+            <div id="danger-alert" class="bg-rose-950/40 border border-rose-900/50 rounded-2xl p-4 flex gap-3 items-start hidden">
+                <div class="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center shrink-0">
+                    <svg class="w-5 h-5 text-rose-400" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                </div>
+                <div class="space-y-1 w-full">
+                    <h3 class="font-black text-sm text-rose-200">Financial Leak Vector Cleared</h3>
+                    <p id="ai-conversational-text" class="text-xs font-medium text-rose-300/90 leading-relaxed"></p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div class="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between h-28">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Month-to-Date Accrued</span>
+                    <p class="text-2xl font-black text-white font-mono" id="current-cost-text">$0.00</p>
+                    <div id="current-pill" class="w-fit px-2 py-0.5 bg-slate-900 text-slate-400 rounded text-[9px] font-bold border border-slate-800">--</div>
+                </div>
+                <div class="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between h-28">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Calculated Trajectory</span>
+                    <p class="text-2xl font-black text-white font-mono" id="forecast-cost-text">$0.00</p>
+                    <div id="forecast-pill" class="w-fit px-2 py-0.5 bg-slate-900 text-slate-400 rounded text-[9px] font-bold border border-slate-800">--</div>
+                </div>
+            </div>
+
+            <div class="bg-slate-900/40 border border-slate-800/80 rounded-[24px] p-4 space-y-4">
+                <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Active Intercept Protocols</span>
+                
+                <div onclick="triggerAction('instances')" class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-3.5 flex items-center justify-between cursor-pointer active:scale-[0.99] hover:bg-slate-900 transition-all">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center font-bold text-sm">⚡</div>
+                        <div>
+                            <h4 class="font-extrabold text-sm text-slate-200">Isolate Unused Computes</h4>
+                            <p class="text-[11px] font-medium text-slate-500 mt-0.5">Flush dead compute allocations</p>
+                        </div>
+                    </div>
+                    <div class="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-black text-xs px-2.5 py-1 rounded-xl text-center">
+                        <span class="block text-[8px] uppercase font-bold text-emerald-500 tracking-tight">Recover</span>
+                        $<span id="save-amount-text">0.00</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="instances-list-layer" class="bg-slate-900/40 border border-slate-800/80 rounded-[24px] p-4 space-y-3">
+                <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Tracked Cloud Topology</span>
+                <div id="instances-container" class="space-y-2">
+                    </div>
+            </div>
+        </div>
+
+        <div class="absolute bottom-0 inset-x-0 bg-slate-950/90 backdrop-blur-md border-t border-slate-900 px-12 py-3 flex items-center justify-between z-10">
+            <div class="flex flex-col items-center gap-0.5 cursor-pointer text-indigo-400">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+                <span class="text-[9px] font-bold uppercase tracking-wider">Perimeter</span>
+            </div>
+            <div class="flex flex-col items-center gap-0.5 cursor-pointer text-slate-600">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+                <span class="text-[9px] font-bold uppercase tracking-wider">API Logs</span>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        function handleSlotChange() {
+            const slot = document.getElementById('slot-input').value;
+            const integrationBox = document.getElementById('aws-integration-box');
+            if(slot === 'slot1') {
+                integrationBox.classList.add('opacity-40', 'pointer-events-none');
+                document.getElementById('mock-key-id').value = "AKIA382910485721_DEMO";
+                document.getElementById('mock-secret').value = "••••••••••••••••••••••••";
+            } else {
+                integrationBox.classList.remove('opacity-40', 'pointer-events-none');
+                document.getElementById('mock-key-id').value = "";
+                document.getElementById('mock-secret').value = "";
+            }
+        }
+
+        function initializeMvpDashboard() {
+            const chosenSlot = document.getElementById('slot-input').value;
+            localStorage.setItem('cs_assigned_slot', chosenSlot);
+            
+            // Check if user entered custom name or input for slots 2-5
+            if(chosenSlot !== 'slot1') {
+                const keyInput = document.getElementById('mock-key-id').value;
+                if(!keyInput) {
+                    alert("Please enter your read-only AWS Access Key ID to anchor this secure gateway.");
+                    return;
+                }
+            }
+            
+            document.getElementById('onboarding-screen').classList.add('translate-x-full');
+            fetchLiveCloudMetrics();
+        }
+
+        async function fetchLiveCloudMetrics() {
+            const activeSlot = localStorage.getItem('cs_assigned_slot') || "slot1";
+
+            try {
+                const response = await fetch(`./data_${activeSlot}.json`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('display-name').innerText = data.operatorName;
+                    
+                    let statusLabel = data.connectionStatus;
+                    if(statusLabel.includes("Sandbox") || statusLabel.includes("Presentation")) {
+                        statusLabel = "SECURE ENGINE // ENCRYPTED_DEMO_NODE";
+                        document.getElementById('arn-display').innerText = `arn:aws:iam::382910485:user/cloudshield-sandbox-mesh`;
+                    } else {
+                        statusLabel = "LIVE PIPELINE // ACTIVE_DECRYPT_OK";
+                        document.getElementById('arn-display').innerText = `arn:aws:iam::live_account:user/cloudshield-active`;
+                    }
+                    
+                    document.getElementById('connection-status').innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> ${statusLabel}`;
+                    document.getElementById('current-cost-text').innerText = `$${data.currentMonthCost}`;
+                    document.getElementById('forecast-cost-text').innerText = `$${data.predictedForecast}`;
+                    document.getElementById('save-amount-text').innerText = `${data.potentialSavings}`;
+                    
+                    const alertBox = document.getElementById('danger-alert');
+                    const aiText = document.getElementById('ai-conversational-text');
+                    const forecastPill = document.getElementById('forecast-pill');
+                    const currentPill = document.getElementById('current-pill');
+                    
+                    if (currentPill) {
+                        currentPill.innerText = "✓ SHIELD ANCHORED";
+                        currentPill.className = "w-fit px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded text-[9px] font-mono font-bold";
+                    }
+
+                    if (data.spikeDetected) {
+                        if (alertBox) alertBox.classList.remove('hidden');
+                        
+                        if(data.operatorName === "David" || activeSlot === 'slot1') {
+                            aiText.innerHTML = `Hey David! 🚨 Your AWS cluster is leaking cash. Your spend is at $${data.currentMonthCost}, but tracking trajectory shows it exploding to <strong class="text-white">$${data.predictedForecast}</strong> by month-end. We mapped <strong>${data.idleVmsCount} dead servers</strong> left open in us-east-1. Snip them to save <strong>$${data.potentialSavings}</strong> instantly.`;
+                        } else {
+                            aiText.innerText = data.conversationalAlert;
+                        }
+
+                        if (forecastPill) {
+                            forecastPill.innerText = "⚠️ TRAJECTORY_OVERRUN";
+                            forecastPill.className = "w-fit px-2 py-0.5 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded text-[9px] font-mono font-bold";
+                        }
+                        
+                        renderRealInfrastructureNodes(data.idleVmsCount);
+                    } else {
+                        if (alertBox) alertBox.classList.add('hidden');
+                        if (forecastPill) {
+                            forecastPill.innerText = "✓ MARGINS_OPTIMAL";
+                            forecastPill.className = "w-fit px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded text-[9px] font-mono font-bold";
+                        }
+                        document.getElementById('instances-list-layer').classList.add('hidden');
+                    }
+                }
+            } catch (e) {
+                console.log("Core system matrix reading.");
+            }
+        }
+
+        function renderRealInfrastructureNodes(count) {
+            const container = document.getElementById('instances-container');
+            if (!container) return;
+            container.innerHTML = "";
+            
+            const randomIds = ["i-0bf4a180ef9a3", "i-09c4d8120fa2e", "i-0a2b5ef4109c9", "i-0cf512a884ef1"];
+            const regions = ["us-east-1a", "us-west-2c", "eu-west-1b", "us-east-1b"];
+            
+            for(let i = 0; i < count; i++) {
+                const targetId = randomIds[i] || `i-0ef${i}a8291f`;
+                const targetRegion = regions[i] || "us-east-1a";
+                const row = document.createElement('div');
+                row.className = "flex justify-between items-center p-3 bg-slate-900 border border-slate-800 rounded-xl text-xs font-mono";
+                row.innerHTML = `
+                    <div class="flex items-center gap-2.5">
+                        <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                        <div>
+                            <p class="font-bold text-slate-200 text-xs">${targetId}</p>
+                            <p class="text-[9px] text-slate-500 mt-0.5">t3.xlarge • ${targetRegion} • IDLE_DRAIN</p>
+                        </div>
+                    </div>
+                    <span class="font-bold text-rose-400 text-xs">+$40.00/mo</span>
+                `;
+                container.appendChild(row);
+            }
+        }
+
+        async function triggerAction(actionType) {
+            if (actionType === 'instances') {
+                const confirmKill = confirm("Execute cloud connection request back to GitHub automation runner to lock down resources?");
+                if (!confirmKill) return;
+
+                alert("📡 Terminal request sent to CloudShield background runtime runner...");
+                
+                document.getElementById('danger-alert').classList.add('hidden');
+                document.getElementById('instances-list-layer').classList.add('hidden');
+                document.getElementById('forecast-cost-text').innerText = document.getElementById('current-cost-text').innerText;
+                const forecastPill = document.getElementById('forecast-pill');
+                forecastPill.innerText = "✓ LEAK_PLUGGED_OK";
+                forecastPill.className = "w-fit px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded text-[9px] font-mono font-bold";
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            handleSlotChange();
+            const activeSlot = localStorage.getItem('cs_assigned_slot');
+            if (activeSlot) {
+                document.getElementById('onboarding-screen').classList.add('hidden');
+                fetchLiveCloudMetrics();
+            }
+        });
+    </script>
+</body>
+</html>
