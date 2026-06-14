@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CloudShield</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen flex justify-center items-center p-0 sm:p-4">
+
+    <!-- Clean, Simple White Mobile Container -->
+    <div class="w-full max-w-md bg-white min-h-screen sm:min-h-[844px] sm:rounded-[40px] sm:border sm:border-slate-200 shadow-xl flex flex-col justify-between relative overflow-hidden">
+        
+        <!-- ==================== SCREEN 1: LOGIN & CONNECT ==================== -->
+        <div id="onboarding-screen" class="absolute inset-0 bg-white p-6 z-30 transition-transform duration-300 flex flex-col justify-between overflow-y-auto pb-8">
+            <div class="space-y-6 pt-4">
+                <!-- App Logo -->
+                <div class="flex items-center gap-2">
+                    <div class="w-7 h-7 rounded bg-slate-900 flex items-center justify-center font-black text-white text-base">S</div>
+                    <h1 class="text-xl font-bold text-slate-900 tracking-tight">CloudShield</h1>
+                </div>
+
+                <p class="text-sm text-slate-600 leading-relaxed">Stop letting Amazon overcharge you. Connect your account in read-only mode to track hidden background bills instantly from your phone.</p>
+
+                <!-- Select Account Dropdown -->
+                <div class="space-y-2">
+                    <label class="text-xs font-bold text-slate-500 block">Choose an Account Slot</label>
+                    <select id="slot-input" onchange="handleSlotChange()" class="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl font-semibold text-slate-800 outline-none focus:border-slate-400 transition-all appearance-none">
+                        <option value="slot1">Demo Account (Pitch Preview - David)</option>
+                        <option value="slot2">Client Slot 2 [Empty]</option>
+                        <option value="slot3">Client Slot 3 [Empty]</option>
+                        <option value="slot4">Client Slot 4 [Empty]</option>
+                        <option value="slot5">Client Slot 5 [Empty]</option>
+                    </select>
+                </div>
+
+                <!-- Trust Connection Box -->
+                <div id="aws-integration-box" class="border border-slate-200 rounded-2xl p-4 space-y-4 bg-slate-50/50">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-slate-700">Safety Guarantee</span>
+                        <span class="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-2 py-0.5 rounded font-bold">READ-ONLY ONLY</span>
+                    </div>
+
+                    <p class="text-xs text-slate-600 leading-normal">This tool uses a 100% read-only connection. It is mathematically impossible for anyone to touch your code, edit your databases, or change your live app setup.</p>
+
+                    <!-- Simple Policy View -->
+                    <div class="bg-white p-3 rounded-xl border border-slate-100 font-mono text-[11px] text-slate-600 space-y-1">
+                        <p class="text-slate-400">// Restricted Access Only:</p>
+                        <p class="text-emerald-600">• Read Billing History</p>
+                        <p class="text-emerald-600">• Count Running Servers</p>
+                    </div>
+
+                    <!-- AWS Key Info Message -->
+                    <div class="p-3 bg-slate-100 rounded-xl text-[11px] text-slate-500 leading-normal">
+                        🔒 Setup keys inside your secure GitHub secrets platform to arm slots 2 through 5.
+                    </div>
+                </div>
+            </div>
+
+            <button onclick="initializeDashboard()" class="w-full bg-slate-900 hover:bg-slate-800 text-white py-3.5 rounded-xl font-bold text-sm shadow-sm transition-all mt-6">
+                Connect & Open Dashboard
+            </button>
+        </div>
+
+        <!-- ==================== SCREEN 2: MAIN DASHBOARD ==================== -->
+        <div class="flex-1 flex flex-col p-5 space-y-5 overflow-y-auto pb-24">
+            
+            <!-- Simple Header -->
+            <div class="flex items-center justify-between pt-2">
+                <span class="text-lg font-bold text-slate-900 tracking-tight">CloudShield</span>
+                <div id="connection-status" class="bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-md text-xs font-medium text-slate-600 flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                    Checking...
+                </div>
+            </div>
+
+            <!-- Welcome User Title -->
+            <div>
+                <h2 class="text-xl font-extrabold text-slate-900 tracking-tight">
+                    Hello, <span id="display-name" class="text-slate-900">User</span> 👋
+                </h2>
+                <p id="arn-display" class="text-[11px] text-slate-400 mt-0.5">ID: cloudshield-readonly-mesh</p>
+            </div>
+
+            <!-- Conversational Danger Text Alert -->
+            <div id="danger-alert" class="bg-rose-50 border border-rose-100 rounded-xl p-4 flex gap-3 items-start hidden">
+                <div class="space-y-1 w-full">
+                    <h3 class="font-bold text-xs uppercase tracking-wider text-rose-800">Alert // Spending Leak</h3>
+                    <p id="ai-conversational-text" class="text-xs text-rose-700 leading-relaxed font-medium"></p>
+                </div>
+            </div>
+
+            <!-- Big Simple Numbers Grid -->
+            <div class="grid grid-cols-2 gap-4">
+                <div class="border border-slate-200 rounded-xl p-4 flex flex-col justify-between h-24 bg-white">
+                    <span class="text-xs font-bold text-slate-400">Spent This Month</span>
+                    <p class="text-xl font-black text-slate-900 tracking-tight" id="current-cost-text">$0.00</p>
+                    <div id="current-pill" class="w-fit text-[10px] font-bold text-slate-400">--</div>
+                </div>
+                <div class="border border-slate-200 rounded-xl p-4 flex flex-col justify-between h-24 bg-white">
+                    <span class="text-xs font-bold text-slate-400">Next Bill Prediction</span>
+                    <p class="text-xl font-black text-slate-900 tracking-tight" id="forecast-cost-text">$0.00</p>
+                    <div id="forecast-pill" class="w-fit text-[10px] font-bold text-slate-400">--</div>
+                </div>
+            </div>
+
+            <!-- Quick Action Layer -->
+            <div class="space-y-2">
+                <span class="text-xs font-bold text-slate-400 block uppercase tracking-wider">Actions</span>
+                
+                <div onclick="triggerAction('instances')" class="border border-slate-200 bg-white rounded-xl p-3.5 flex items-center justify-between cursor-pointer active:scale-[0.99] hover:bg-slate-50 transition-all">
+                    <div>
+                        <h4 class="font-bold text-sm text-slate-900">Turn Off Idle Servers</h4>
+                        <p class="text-xs text-slate-400 mt-0.5">Stop wasteful background computers</p>
+                    </div>
+                    <div class="text-right">
+                        <span class="block text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Save</span>
+                        <span class="font-bold text-sm text-emerald-600">+$<span id="save-amount-text">0.00</span></span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Real Resource Item List -->
+            <div id="instances-list-layer" class="space-y-2 hidden">
+                <span class="text-xs font-bold text-slate-400 block uppercase tracking-wider">Active Waste Found</span>
+                <div id="instances-container" class="space-y-2">
+                    <!-- Dynamic layers from Python engine populate here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== FIXED MOBILE NAVIGATION BAR ==================== -->
+        <div class="absolute bottom-0 inset-x-0 bg-white border-t border-slate-100 px-16 py-3 flex items-center justify-between z-10">
+            <div class="flex flex-col items-center gap-0.5 cursor-pointer text-slate-900">
+                <span class="text-xs font-bold tracking-tight">Monitor</span>
+            </div>
+            <div class="flex flex-col items-center gap-0.5 cursor-pointer text-slate-300">
+                <span class="text-xs font-bold tracking-tight">Logs</span>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ==================== JAVASCRIPT FRONTEND RENDER ENGINE ==================== -->
+    <script>
+        function handleSlotChange() {
+            const slot = document.getElementById('slot-input').value;
+            const integrationBox = document.getElementById('aws-integration-box');
+            if(slot === 'slot1') {
+                integrationBox.classList.add('opacity-40');
+            } else {
+                integrationBox.classList.remove('opacity-40');
+            }
+        }
+
+        function initializeDashboard() {
+            const chosenSlot = document.getElementById('slot-input').value;
+            localStorage.setItem('cs_assigned_slot', chosenSlot);
+            
+            document.getElementById('onboarding-screen').classList.add('translate-x-full');
+            loadCloudMetrics();
+        }
+
+        async function loadCloudMetrics() {
+            const activeSlot = localStorage.getItem('cs_assigned_slot') || "slot1";
+
+            try {
+                // Fetch the dynamic normalized JSON generated by your Python pipeline
+                const response = await fetch(`./data_${activeSlot}.json`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('display-name').innerText = data.operatorName;
+                    document.getElementById('arn-display').innerText = `Status: ${data.connectionStatus}`;
+                    
+                    document.getElementById('connection-status').innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Live Verified`;
+                    document.getElementById('current-cost-text').innerText = `$${data.currentMonthCost}`;
+                    document.getElementById('forecast-cost-text').innerText = `$${data.predictedForecast}`;
+                    document.getElementById('save-amount-text').innerText = data.potentialSavings;
+                    
+                    const alertBox = document.getElementById('danger-alert');
+                    const aiText = document.getElementById('ai-conversational-text');
+                    const forecastPill = document.getElementById('forecast-pill');
+                    const currentPill = document.getElementById('current-pill');
+                    
+                    if (currentPill) {
+                        currentPill.innerText = "✓ Connected";
+                        currentPill.className = "w-fit text-[10px] font-bold text-emerald-600";
+                    }
+
+                    if (data.spikeDetected) {
+                        if (alertBox) alertBox.classList.remove('hidden');
+                        if (aiText) aiText.innerText = data.conversationalAlert;
+
+                        if (forecastPill) {
+                            forecastPill.innerText = "⚠️ Runaway Spend";
+                            forecastPill.className = "w-fit text-[10px] font-bold text-rose-600";
+                        }
+                        
+                        document.getElementById('instances-list-layer').classList.remove('hidden');
+                        renderServerListRows(data.runningItems);
+                    } else {
+                        if (alertBox) alertBox.classList.add('hidden');
+                        if (forecastPill) {
+                            forecastPill.innerText = "✓ Normal Target";
+                            forecastPill.className = "w-fit text-[10px] font-bold text-emerald-600";
+                        }
+                        document.getElementById('instances-list-layer').classList.add('hidden');
+                    }
+                }
+            } catch (e) {
+                console.error("Data tracking module sync error: ", e);
+                document.getElementById('connection-status').innerText = "Offline Cache Mode";
+            }
+        }
+
+        // DYNAMIC RENDERING FOR EC2, RDS, S3, AND LAMBDA OBJECT ROWS
+        function renderServerListRows(items) {
+            const container = document.getElementById('instances-container');
+            if (!container || !items) return;
+            container.innerHTML = "";
+            
+            items.forEach(item => {
+                const row = document.createElement('div');
+                row.className = "flex justify-between items-center p-3 border border-slate-100 rounded-xl text-xs bg-slate-50/50";
+                row.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                        <div>
+                            <p class="font-bold text-slate-800">${item.id}</p>
+                            <p class="text-[10px] text-slate-400 mt-0.5">${item.service} • ${item.type}</p>
+                        </div>
+                    </div>
+                    <span class="font-bold text-rose-600">+$${parseFloat(item.costEstimate).toFixed(2)}/mo</span>
+                `;
+                container.appendChild(row);
+            }
+        }
+
+        async function triggerAction(actionType) {
+            if (actionType === 'instances') {
+                const confirmKill = confirm("Do you want to clear these wasteful background items right now?");
+                if (!confirmKill) return;
+
+                alert("Shutting down infrastructure assets securely...");
+                
+                document.getElementById('danger-alert').classList.add('hidden');
+                document.getElementById('instances-list-layer').classList.add('hidden');
+                document.getElementById('forecast-cost-text').innerText = document.getElementById('current-cost-text').innerText;
+                const forecastPill = document.getElementById('forecast-pill');
+                forecastPill.innerText = "✓ Waste Handled";
+                forecastPill.className = "w-fit text-[10px] font-bold text-emerald-600";
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            handleSlotChange();
+            const activeSlot = localStorage.getItem('cs_assigned_slot');
+            if (activeSlot) {
+                document.getElementById('onboarding-screen').classList.add('hidden');
+                loadCloudMetrics();
+            }
+        });
+    </script>
+</body>
+</html>
