@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: cloudshield-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: PLATFORM_AWS_ACCESS_KEY_ID
+        sync: false
+      - key: PLATFORM_AWS_SECRET_ACCESS_KEY
+        sync: false
