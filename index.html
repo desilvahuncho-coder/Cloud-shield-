@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CloudShield Mobile Client</title>
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --primary-hover: #3b31d4;
+            --bg: #ffffff;
+            --card-bg: #ffffff;
+            --text-main: #1e2538;
+            --text-sub: #6e788c;
+            --border: #e2e8f0;
+            --active-blue: #4f46e5;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+        body { background-color: #f8fafc; display: flex; justify-content: center; min-height: 100vh; padding: 10px; }
+        
+        .phone-container {
+            width: 100%;
+            max-width: 412px;
+            background: var(--bg);
+            border-radius: 36px;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.15);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            border: 6px solid #1a1a1a;
+        }
+
+        /* Top Header Navigation */
+        .header-bar {
+            padding: 18px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+        }
+        .header-close { font-size: 22px; color: var(--text-main); cursor: pointer; }
+        .header-title { font-size: 19px; font-weight: 700; color: #111424; letter-spacing: -0.5px; }
+        .status-badge { background: #f1f5f9; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; color: var(--text-sub); display: flex; align-items: center; gap: 6px; }
+        .status-dot { width: 7px; height: 7px; background: #cbd5e1; border-radius: 50%; }
+        .status-dot.connected { background: #10b981; }
+
+        /* Content Viewport */
+        .viewport { padding: 24px 20px; flex: 1; display: flex; flex-direction: column; align-items: center; overflow-y: auto; }
+        .brand-logo { font-size: 42px; margin-bottom: 14px; display: block; }
+        .app-title { font-size: 24px; font-weight: 800; color: #0f172a; margin-bottom: 10px; letter-spacing: -0.5px; text-align: center; }
+        .app-description { font-size: 14px; color: var(--text-sub); text-align: center; line-height: 1.6; margin-bottom: 26px; padding: 0 4px; }
+
+        /* Accounts/Slots Matrix Layout Matching Screenshot */
+        .slots-wrapper { width: 100%; display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; }
+        .slot-item {
+            border: 2px solid var(--border);
+            border-radius: 18px;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            background: #fff;
+        }
+        .slot-item.active { border-color: var(--active-blue); background: #fafafa; }
+        
+        .slot-meta { display: flex; align-items: center; gap: 14px; }
+        .slot-avatar { width: 42px; height: 42px; background: #f1f5f9; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+        .slot-item.active .slot-avatar { background: #e0e7ff; }
+        
+        .slot-text h4 { font-size: 15px; font-weight: 700; color: #0f172a; margin-bottom: 3px; }
+        .slot-text p { font-size: 12px; color: var(--text-sub); font-weight: 500; }
+        .selection-check { color: var(--primary); font-weight: bold; font-size: 16px; display: none; }
+        .slot-item.active .selection-check { display: block; }
+
+        /* API Dynamic Trigger Action Button */
+        .action-button {
+            width: 100%;
+            background: var(--primary);
+            color: #ffffff;
+            border: none;
+            padding: 16px;
+            border-radius: 18px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: background 0.15s ease-in-out;
+            margin-top: auto;
+        }
+        .action-button:hover { background: var(--primary-hover); }
+        .action-button:disabled { background: #94a3b8; cursor: not-allowed; }
+
+        /* JSON Real Data Display Box */
+        .json-output-box {
+            width: 100%;
+            background: #0f172a;
+            color: #38bdf8;
+            font-family: "Courier New", Courier, monospace;
+            font-size: 11px;
+            padding: 12px;
+            border-radius: 12px;
+            margin-top: 20px;
+            max-height: 180px;
+            overflow-y: auto;
+            display: none;
+            white-space: pre-wrap;
+            text-align: left;
+        }
+
+        /* Bottom Nav Tab Layout */
+        .bottom-nav { display: flex; border-top: 1px solid var(--border); padding: 12px 0; background: #ffffff; width: 100%; }
+        .nav-link { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--text-sub); text-decoration: none; cursor: pointer; }
+        .nav-link.active { color: var(--primary); }
+    </style>
+</head>
+<body>
+
+<div class="phone-container">
+    <div class="header-bar">
+        <span class="header-close">✕</span>
+        <div class="header-title">CloudShield</div>
+        <div class="status-badge">
+            <div class="status-dot" id="apiStatusDot"></div>
+            <span id="apiStatusText">Connect</span>
+        </div>
+    </div>
+
+    <div class="viewport">
+        <span class="brand-logo">🛡️</span>
+        <h2 class="app-title">Shield Your Cloud Bills</h2>
+        <p class="app-description">Connect your cloud accounts in read-only mode. CloudShield monitors AWS, Azure & GCP for budget spikes, idle resources, and hidden costs — instantly from your phone.</p>
+
+        <div class="slots-wrapper">
+            <div class="slot-item active" id="slot-demo" onclick="activateSlot('demo')">
+                <div class="slot-meta">
+                    <div class="slot-avatar">☁️</div>
+                    <div class="slot-text">
+                        <h4 id="label-demo">Demo Account (David)</h4>
+                        <p id="sub-demo">AWS + Azure + GCP • Read-only</p>
+                    </div>
+                </div>
+                <span class="selection-check">✓</span>
+            </div>
+
+            <div class="slot-item" id="slot-c2" onclick="activateSlot('c2')">
+                <div class="slot-meta">
+                    <div class="slot-avatar">＋</div>
+                    <div class="slot-text">
+                        <h4 id="label-c2">Client Slot 2</h4>
+                        <p id="sub-c2">Empty — tap to configure live connector</p>
+                    </div>
+                </div>
+                <span class="selection-check">✓</span>
+            </div>
+
+            <div class="slot-item" id="slot-c3" onclick="activateSlot('c3')">
+                <div class="slot-meta">
+                    <div class="slot-avatar">＋</div>
+                    <div class="slot-text">
+                        <h4 id="label-c3">Client Slot 3</h4>
+                        <p id="sub-c3">Empty — tap to configure live connector</p>
+                    </div>
+                </div>
+                <span class="selection-check">✓</span>
+            </div>
+        </div>
+
+        <button class="action-button" id="triggerBtn" onclick="dispatchAwsHandshake()">
+            🔗 Connect & Open Dashboard
+        </button>
+
+        <pre class="json-output-box" id="jsonTerminal"></pre>
+    </div>
+
+    <div class="bottom-nav">
+        <div class="nav-link active">🏠<br>Shield Hub</div>
+        <div class="nav-link">🔔<br>Logs</div>
+        <div class="nav-link">⚙️<br>Settings</div>
+    </div>
+</div>
+
+<script>
+    let activeTarget = 'demo';
+    let database = {
+        demo: { arn: "arn:aws:iam::123456789012:role/CloudShieldReadOnlyAccess", name: "Demo Account (David)" },
+        c2: null,
+        c3: null
+    };
+
+    function activateSlot(targetId) {
+        document.querySelectorAll('.slot-item').forEach(el => el.classList.remove('active'));
+        document.getElementById(`slot-${targetId}`).classList.add('active');
+        activeTarget = targetId;
+
+        // If the client slot is completely empty, prompt user to configuration setup input right on phone
+        if (targetId !== 'demo' && !database[targetId]) {
+            const alias = prompt("Enter a system name for Client Account:");
+            if (!alias) return;
+            const arn = prompt("Paste your Client's cross-account AWS IAM Role ARN:");
+            if (!arn || !arn.startsWith("arn:aws:iam")) {
+                alert("Validation Rejected. Invalid AWS IAM Role ARN format.");
+                return;
+            }
+            
+            database[targetId] = { name: alias, arn: arn };
+            document.getElementById(`label-${targetId}`).innerText = alias;
+            document.getElementById(`sub-${targetId}`).innerText = `AWS Verified: ${arn.substring(0, 22)}...`;
+        }
+    }
+
+    async function dispatchAwsHandshake() {
+        const btn = document.getElementById('triggerBtn');
+        const dot = document.getElementById('apiStatusDot');
+        const txt = document.getElementById('apiStatusText');
+        const term = document.getElementById('jsonTerminal');
+
+        const activeConfig = database[activeTarget];
+        if (!activeConfig) {
+            alert("Please tap and input your cross-account IAM parameters for this slot first.");
+            return;
+        }
+
+        btn.disabled = true;
+        btn.innerText = "Querying Live AWS Telemetry Engine...";
+        term.style.display = "none";
+
+        // CHANGE THIS URL to your live domain address once deployed to the web (Render, Railway, EC2)
+        const liveApiUrl = 'http://127.0.0.1:5000/api/v1/connect-cloud';
+
+        try {
+            const response = await fetch(liveApiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    role_arn: activeConfig.arn,
+                    external_id: "CloudShield_Secret_Token_2026"
+                })
+            });
+
+            const resultData = await response.json();
+
+            if (response.ok && resultData.status === "SUCCESS") {
+                btn.style.background = "#10b981";
+                btn.innerText = "✓ AWS Connected";
+                dot.classList.add('connected');
+                txt.innerText = "Live Link";
+
+                // Output real AWS Cost Explorer and Instance inventory JSON on screen
+                term.style.display = "block";
+                term.innerText = JSON.stringify(resultData, null, 2);
+            } else {
+                throw new Error(resultData.message || "Authentication Handshake Rejected.");
+            }
+        } catch (error) {
+            alert(`Connection Error: ${error.message}\nMake sure your backend server app.py is online.`);
+            btn.disabled = false;
+            btn.style.background = "var(--primary)";
+            btn.innerText = "🔗 Connect & Open Dashboard";
+        }
+    }
+</script>
+</body>
+</html>
