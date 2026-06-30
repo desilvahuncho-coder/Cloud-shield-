@@ -1,0 +1,44 @@
+// app/api/utils/aws-client.js
+import { STSClient, AssumeRoleCommand } from "@aws-sdk/client-sts";
+
+/**
+ * Assumes an IAM Role on behalf of an MSP organization to generate temporary, short-lived API keys.
+ * No access keys are stored or exposed to the frontend wrapper layer.
+ * 
+ * @param {string} roleArn - The target AWS IAM Role ARN provided by the MSP client
+ * @param {string} externalId - Unique token validating the connection session trust
+ * @returns {Object} Temporary credentials block (AccessKeyId, SecretAccessKey, SessionToken)
+ */
+export async function getAssumedCredentials(roleArn, externalId) {
+  if (!roleArn || !externalId) {
+    throw new Error("Missing structural credential configurations.");
+  }
+
+  // Initialize a baseline security token service execution client using server env parameters
+  const stsClient = new STSClient({
+    region: process.env.AWS_APP_REGION || "us-east-1",
+    credentials: {
+      accessKeyId: process.env.AWS_MASTER_ACCESS_KEY_ID,
+      secretAccessKey: process.env.AWS_MASTER_SECRET_ACCESS_KEY,
+    }
+  });
+
+  const command = new AssumeRoleCommand({
+    RoleArn: roleArn,
+    RoleSessionName: `CloudShield-Session-${Date.now()}`,
+    ExternalId: externalId,
+    DurationSeconds: 900 // Hard constraint to lowest threshold: 15-minute key lifecycle expiration
+  });
+
+  try {
+    const response = await stsClient.send(command);
+    return {
+      accessKeyId: response.Credentials.AccessKeyId,
+      secretAccessKey: response.Credentials.SecretAccessKey,
+      sessionToken: response.Credentials.SessionToken,
+    };
+  } catch (error) {
+    console.error("CRITICAL: Failed server-side assumption profile routing:", error);
+    throw new Error("AWS Secure Client Token Handshake Refused.");
+  }
+}
