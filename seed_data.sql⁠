@@ -1,0 +1,20 @@
+-- 1. Insert the shared Organization profile (The MSP)
+INSERT INTO organizations (id, name)
+VALUES ('e7b30c45-9831-4a57-937b-91d4e0e4708a', 'Managed Cloud Solutions Ltd');
+
+-- 2. Setup the Shared Cross-Account AWS Role Link
+-- This connects the organization profile to the target AWS IAM setup
+INSERT INTO aws_connections (organization_id, iam_role_arn, external_id)
+VALUES (
+    'e7b30c45-9831-4a57-937b-91d4e0e4708a', 
+    'arn:aws:iam::123456789012:role/CloudShieldCrossAccountAccess', 
+    'Secure_Handshake_Token_XYZ_2026'
+);
+
+-- 3. Staging User Seats for granular attribution tracking
+-- Note: In production, these IDs will match the primary keys generated inside auth.users
+INSERT INTO users (id, organization_id, full_name, email)
+VALUES 
+    ('a1111111-1111-1111-1111-111111111111', 'e7b30c45-9831-4a57-937b-91d4e0e4708a', 'Alex Thorne', 'alex@managedcloud.com'),
+    ('b2222222-2222-2222-2222-222222222222', 'e7b30c45-9831-4a57-937b-91d4e0e4708a', 'Sarah Jenkins', 'sarah@managedcloud.com'),
+    ('c3333333-3333-3333-3333-333333333333', 'e7b30c45-9831-4a57-937b-91d4e0e4708a', 'David Vance', 'david@managedcloud.com');
