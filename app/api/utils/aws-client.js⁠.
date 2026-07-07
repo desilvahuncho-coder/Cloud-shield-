@@ -1,0 +1,35 @@
+import { STSClient, AssumeRoleCommand } from "@aws-sdk/client-sts";
+
+/**
+ * Exchanges connection details for short-lived temporary security tokens.
+ * @param {string} roleArn - The target cross-account IAM role string.
+ * @param {string} externalId - The security handshake string.
+ */
+export async function getAssumedCredentials(roleArn, externalId) {
+  const stsClient = new STSClient({
+    region: "us-east-1",
+    credentials: {
+      accessKeyId: process.env.CLOUDSHIELD_INTERNAL_AWS_KEY,
+      secretAccessKey: process.env.CLOUDSHIELD_INTERNAL_AWS_SECRET,
+    },
+  });
+
+  const assumeRoleCommand = new AssumeRoleCommand({
+    RoleArn: roleArn,
+    RoleSessionName: `CloudShield_Session_${Date.now()}`,
+    ExternalId: externalId,
+    DurationSeconds: 3600, 
+  });
+
+  try {
+    const response = await stsClient.send(assumeRoleCommand);
+    return {
+      accessKeyId: response.Credentials.AccessKeyId,
+      secretAccessKey: response.Credentials.SecretAccessKey,
+      sessionToken: response.Credentials.SessionToken,
+    };
+  } catch (error) {
+    console.error("AWS_STS_HANDSHAKE_CRITICAL_FAILURE:", error);
+    throw new Error("Cloud authentication provider refused the handshake verification request.");
+  }
+}
