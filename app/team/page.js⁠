@@ -1,0 +1,185 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+
+export default function TeamManagementPage() {
+  const router = useRouter();
+  const supabase = createClientComponentClient();
+
+  const [loading, setLoading] = useState(true);
+  const [userList, setUserList] = useState([]);
+  const [orgId, setOrgId] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [feedback, setFeedback] = useState({ message: "", type: "" });
+
+  // Load active organization seats on mount
+  useEffect(() => {
+    async function fetchTeamContext() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          router.push("/login");
+          return;
+        }
+
+        // Get user's org mapping
+        const { data: userData, error: userErr } = await supabase
+          .from("users")
+          .select("organization_id")
+          .eq("id", session.user.id)
+          .single();
+
+        if (userErr || !userData) throw new Error("Could not load your organization profile.");
+        setOrgId(userData.organization_id);
+
+        // Fetch all active seats registered to this organization
+        const { data: teamMembers, error: teamErr } = await supabase
+          .from("users")
+          .select("id, email, role, created_at")
+          .eq("organization_id", userData.organization_id)
+          .order("created_at", { ascending: true });
+
+        if (teamErr) throw new Error("Could not retrieve team seats.");
+        setUserList(teamMembers || []);
+
+      } catch (err) {
+        setFeedback({ message: err.message, type: "error" });
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchTeamContext();
+  }, [router, supabase]);
+
+  // Handle invitation processing
+  async function handleSendInvite(e) {
+    e.preventDefault();
+    setInviteLoading(true);
+    setFeedback({ message: "", type: "" });
+
+    try {
+      // 1. Client-side check before making backend calls
+      if (userList.length >= 3) {
+        throw new Error("Maximum 3-seat limit reached. Remove an existing seat to invite someone else.");
+      }
+
+      // 2. Leverage Supabase auth invites to safely register the seat
+      const { error: inviteErr } = await supabase.auth.admin.inviteUserByEmail(inviteEmail, {
+        data: { organization_id: orgId, role: "member" }
+      });
+
+      if (inviteErr) {
+        // Fallback for client-configured apps without full admin permissions enabled
+        throw new Error("To complete standard invitations, ensure Supabase admin API permissions are configured. Contact setup support.");
+      }
+
+      setFeedback({ message: `Success! Invite sent safely to ${inviteEmail}.`, type: "success" });
+      setInviteEmail("");
+      
+      // Refresh local list state
+      router.refresh();
+
+    } catch (err) {
+      setFeedback({ message: err.message, type: "error" });
+    } finally {
+      setInviteLoading(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white text-gray-900 flex items-center justify-center font-sans">
+        <p className="text-sm tracking-wide text-gray-400">Loading seat directory...</p>
+      </div>
+    );
+  }
+
+  const remainingSeats = 3 - userList.length;
+
+  return (
+    <div className="min-h-screen bg-white text-gray-900 font-sans antialiased px-6 py-16 max-w-2xl mx-auto">
+      
+      {/* HEADER SECTION */}
+      <div className="mb-12 flex justify-between items-end border-b border-gray-100 pb-8">
+        <div>
+          <h1 className="text-3xl font-light tracking-tight text-gray-900 mb-2">Team Seats</h1>
+          <p className="text-sm text-gray-400 leading-relaxed font-light">
+            Your pilot workspace allows up to three seats total.
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-2xl font-light text-gray-900">{userList.length}/3</p>
+          <p className="text-[10px] tracking-wider text-gray-400 uppercase font-medium">Seats Occupied</p>
+        </div>
+      </div>
+
+      {feedback.message && (
+        <div className={`mb-8 p-4 border text-sm font-light rounded ${
+          feedback.type === "error" 
+            ? "bg-amber-50 text-amber-800 border-amber-100" 
+            : "bg-gray-50 text-gray-800 border-gray-100"
+        }`}>
+          {feedback.message}
+        </div>
+      )}
+
+      {/* TEAM SEAT LIST */}
+      <section className="mb-12">
+        <h2 className="text-xs tracking-wider text-gray-400 uppercase font-medium mb-4">Active Team Profiles</h2>
+        <div className="border border-gray-100 divide-y divide-gray-100">
+          {userList.map((user) => (
+            <div key={user.id} className="p-4 flex justify-between items-center bg-white hover:bg-gray-50 transition-colors">
+              <div>
+                <p className="text-sm font-medium text-gray-950">{user.email}</p>
+                <p className="text-xs text-gray-400 font-light mt-0.5">Joined {new Date(user.created_at).toLocaleDateString()}</p>
+              </div>
+              <span className="text-xs px-2.5 py-1 bg-gray-100 text-gray-600 rounded font-mono uppercase tracking-wider text-[10px]">
+                {user.role || "Seat"}
+              </span>
+            </div>
+          ))}
+          
+          {/* PLACEHOLDER SLOTS SHOWING VACANT SEATS */}
+          {Array.from({ length: remainingSeats }).map((_, index) => (
+            <div key={`empty-${index}`} className="p-4 flex justify-between items-center bg-gray-50/50 border-dashed border-gray-200">
+              <span className="text-sm text-gray-300 italic font-light">Unassigned Seat</span>
+              <span className="text-xs text-gray-300 font-mono tracking-wide">Available</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* INVITE NEW SEAT FORM (Only renders if slots are free) */}
+      {remainingSeats > 0 ? (
+        <section>
+          <h2 className="text-xs tracking-wider text-gray-400 uppercase font-medium mb-4">Invite New Seat</h2>
+          <form onSubmit={handleSendInvite} className="flex gap-2">
+            <input
+              type="email"
+              required
+              placeholder="engineer@msp-domain.com"
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              className="flex-1 px-4 py-3 border border-gray-200 text-gray-900 placeholder-gray-300 focus:outline-none focus:border-gray-900 transition-colors text-sm font-light rounded-none"
+            />
+            <button
+              type="submit"
+              disabled={inviteLoading}
+              className="bg-gray-900 hover:bg-gray-800 text-white px-6 py-3 text-sm font-medium tracking-wide transition-colors disabled:bg-gray-400"
+            >
+              {inviteLoading ? "Inviting..." : "Send Invite"}
+            </button>
+          </form>
+        </section>
+      ) : (
+        <div className="p-4 bg-gray-50 text-gray-500 border border-gray-100 rounded text-sm font-light text-center">
+          Your organization is at its maximum limit of 3 users. Upgrade is out of scope for this pilot.
+        </div>
+      )}
+
+    </div>
+  );
+}
