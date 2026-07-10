@@ -1,0 +1,93 @@
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+/**
+ * Coordinates infrastructure credentials across multiple organizational endpoints
+ */
+export async function POST(request) {
+  try {
+    const { userId, action, accountLabel, accessRoleArn, connectionId } = await request.json();
+
+    if (!userId) {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401 });
+    }
+
+    // 1. Authenticate user context and extract organization mapping boundaries[span_4](start_span)[span_4](end_span)
+    const { data: userProfile, error: profileErr } = await supabaseAdmin
+      .from('users')
+      .select('organization_id, role')
+      .eq('id', userId)
+      .single();
+
+    if (profileErr || !userProfile) {
+      return new Response(JSON.stringify({ error: 'Access denied: Profile validation failed.' }), { status: 403 });
+    }
+
+    const orgId = userProfile.organization_id;
+    const userRole = userProfile.role;
+
+    // 2. Action block: Fetch all active linked system accounts
+    if (action === 'LIST') {
+      const { data: connections, error: fetchErr } = await supabaseAdmin
+        .from('aws_connections') // Connects securely to tracking matrices[span_5](start_span)[span_5](end_span)
+        .select('id, account_label, aws_role_arn, created_at')
+        .eq('organization_id', orgId)
+        .order('created_at', { ascending: false });
+
+      if (fetchErr) throw fetchErr;
+      return new Response(JSON.stringify({ connections }), { status: 200 });
+    }
+
+    // 3. RBAC Boundary: Restrict write actions to workspace Admins only[span_6](start_span)[span_6](end_span)
+    if (userRole !== 'admin') {
+      return new Response(JSON.stringify({ error: 'Unauthorized: Only workspace Admins can modify account linkages.' }), { status: 403 });
+    }
+
+    // 4. Action block: Add a new secondary cloud tracking target[span_7](start_span)[span_7](end_span)
+    if (action === 'ADD') {
+      if (!accountLabel || !accessRoleArn) {
+        return new Response(JSON.stringify({ error: 'Missing parameters required for system linkage.' }), { status: 400 });
+      }
+
+      const { data: newConn, error: insertErr } = await supabaseAdmin
+        .from('aws_connections')
+        .insert([
+          {
+            organization_id: orgId,
+            account_label: accountLabel,
+            aws_role_arn: accessRoleArn,
+          }
+        ])
+        .select()
+        .single();
+
+      if (insertErr) throw insertErr;
+      return new Response(JSON.stringify({ success: true, connection: newConn }), { status: 200 });
+    }
+
+    // 5. Action block: Delete / Revoke an existing account connection profile
+    if (action === 'REMOVE') {
+      if (!connectionId) {
+        return new Response(JSON.stringify({ error: 'Connection parameter target missing.' }), { status: 400 });
+      }
+
+      const { error: deleteErr } = await supabaseAdmin
+        .from('aws_connections')
+        .delete()
+        .eq('id', connectionId)
+        .eq('organization_id', orgId); // Guard ownership isolation[span_8](start_span)[span_8](end_span)
+
+      if (deleteErr) throw deleteErr;
+      return new Response(JSON.stringify({ success: true }), { status: 200 });
+    }
+
+    return new Response(JSON.stringify({ error: 'Invalid operation requested.' }), { status: 400 });
+
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+  }
+}
