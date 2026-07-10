@@ -1,0 +1,250 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/utils/supabase/client";
+
+export default function AWSIntegration() {
+  const router = useRouter();
+  const supabase = createClient();
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const [connected, setConnected] = useState(false);
+  const [externalId, setExternalId] = useState("");
+  const [awsAccountId, setAwsAccountId] = useState("");
+  const [iamRoleArn, setIamRoleArn] = useState("");
+  const [integrationDetails, setIntegrationDetails] = useState(null);
+
+  async function loadIntegration() {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        router.push("/login");
+        return;
+      }
+
+      const res = await fetch("/api/integrations/aws");
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || "Could not read integration state.");
+
+      if (data.connected) {
+        setConnected(true);
+        setIntegrationDetails(data.integration);
+        setAwsAccountId(data.integration.aws_account_id);
+        setIamRoleArn(data.integration.iam_role_arn);
+        setExternalId(data.integration.external_id);
+      } else {
+        setConnected(false);
+        setExternalId(data.externalId);
+      }
+    } catch (err) {
+      setErrorMessage(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadIntegration();
+  }, [router, supabase]);
+
+  async function handleRegisterConnection(e) {
+    e.preventDefault();
+    setSaving(true);
+    setErrorMessage("");
+    setStatusMessage("");
+
+    try {
+      const res = await fetch("/api/integrations/aws", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          awsAccountId,
+          iamRoleArn,
+          externalId
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Integration mapping failed.");
+
+      setStatusMessage("Connection parameters registered! Initiating server-side verification...");
+      await handleVerifyConnection();
+
+    } catch (err) {
+      setErrorMessage(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleVerifyConnection() {
+    setVerifying(true);
+    setErrorMessage("");
+    try {
+      // Direct call to our server-side connection verify route (app/api/aws/connect/route.js)
+      const res = await fetch("/api/aws/connect", { method: "POST" });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Handshake failed. Ensure your IAM role policy trusts CloudShield.");
+      }
+
+      setStatusMessage("AWS Workspace linked and verified successfully!");
+      await loadIntegration(); // Refresh UI state
+    } catch (err) {
+      setErrorMessage(err.message);
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-400 font-sans text-xs uppercase tracking-wider">
+        Accessing cloud link parameters...
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans py-12 px-6">
+      <div className="max-w-3xl mx-auto">
+        
+        <header className="mb-10 border-b border-slate-200 pb-6 flex justify-between items-start">
+          <div>
+            <button onClick={() => router.push("/")} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors mb-2 block">&larr; Return to Workspace</button>
+            <h1 className="text-3xl font-extrabold text-slate-950 tracking-tight">AWS Cloud Connection</h1>
+            <p className="text-xs text-slate-400 mt-1">Configure secure, zero-credential read/write tracking using cross-account AWS IAM Roles.</p>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <span className={`h-2.5 w-2.5 rounded-full ${connected && integrationDetails?.status === "active" ? "bg-emerald-500 animate-pulse" : "bg-amber-400"}`} />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              {connected && integrationDetails?.status === "active" ? "Active" : "Awaiting Verification"}
+            </span>
+          </div>
+        </header>
+
+        {errorMessage && (
+          <div className="mb-8 p-4 bg-red-50 border border-red-100 text-red-700 text-xs rounded leading-relaxed">
+            <p className="font-bold">Handshake Failure:</p>
+            <p className="mt-1">{errorMessage}</p>
+          </div>
+        )}
+
+        {statusMessage && (
+          <div className="mb-8 p-4 bg-emerald-50 border border-emerald-100 text-emerald-800 text-xs rounded leading-relaxed">
+            {statusMessage}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          {/* STEP BY STEP TUTORIAL GUIDE */}
+          <div className="md:col-span-1 space-y-6 text-xs text-slate-500 leading-relaxed">
+            <div>
+              <h3 className="font-bold text-slate-900 uppercase text-[10px] tracking-wider mb-2">1. Create IAM Role</h3>
+              <p>Sign in to the AWS Console, head to **IAM Roles**, and select **Custom Trust Policy** under Trusted Entity Types.</p>
+            </div>
+            
+            <div>
+              <h3 className="font-bold text-slate-900 uppercase text-[10px] tracking-wider mb-2">2. Paste Trust Policy</h3>
+              <p>Configure trust relationships using the **External ID** shown on the form. This protects your account from Confused Deputy exploits.</p>
+            </div>
+
+            <div className="bg-slate-100 p-3 rounded border border-slate-200 font-mono text-[10px] break-all select-all">
+              {`{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "AWS": "arn:aws:iam::521151221144:root" },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "StringEquals": { "sts:ExternalId": "${externalId}" }
+      }
+    }
+  ]
+}`}
+            </div>
+
+            <div>
+              <h3 className="font-bold text-slate-900 uppercase text-[10px] tracking-wider mb-2">3. Attach Read Policy</h3>
+              <p>Grant read permissions to track billing spikes and view configurations (e.g., `ce:*` for Cost Explorer, `cloudwatch:*` for metrics).</p>
+            </div>
+          </div>
+
+          {/* SETUP FORM */}
+          <div className="md:col-span-2">
+            <form onSubmit={handleRegisterConnection} className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm space-y-6">
+              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest pb-4 border-b border-slate-100">Workspace Cloud Credentials</h2>
+              
+              <div>
+                <label className="block text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-1">Generated External ID (Immutable)</label>
+                <input
+                  type="text"
+                  readOnly
+                  value={externalId}
+                  className="w-full bg-slate-100 border border-slate-200 rounded p-2.5 font-mono text-[11px] text-slate-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-1">AWS Account ID</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="12-digit number (e.g. 123456789012)"
+                  maxLength="12"
+                  value={awsAccountId}
+                  onChange={(e) => setAwsAccountId(e.target.value.replace(/\D/g, ""))}
+                  className="w-full border border-slate-200 bg-slate-50 focus:bg-white focus:ring-1 focus:ring-indigo-500 rounded p-2.5 text-sm outline-none transition-all"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-1">Target IAM Role ARN</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="arn:aws:iam::123456789012:role/CloudShieldIntegrationRole"
+                  value={iamRoleArn}
+                  onChange={(e) => setIamRoleArn(e.target.value.trim())}
+                  className="w-full border border-slate-200 bg-slate-50 focus:bg-white focus:ring-1 focus:ring-indigo-500 rounded p-2.5 text-sm outline-none transition-all"
+                />
+              </div>
+
+              <div className="pt-4 border-t border-slate-100 flex gap-4">
+                <button
+                  type="submit"
+                  disabled={saving || verifying}
+                  className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider rounded transition-colors disabled:bg-slate-200 disabled:text-slate-400"
+                >
+                  {saving ? "Registering Parameters..." : "Save and Sync Role"}
+                </button>
+                
+                {connected && (
+                  <button
+                    type="button"
+                    onClick={handleVerifyConnection}
+                    disabled={verifying || saving}
+                    className="px-6 py-3 border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs uppercase tracking-wider rounded transition-colors disabled:opacity-50"
+                  >
+                    {verifying ? "Verifying..." : "Verify Connection"}
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
