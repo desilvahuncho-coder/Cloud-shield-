@@ -1,0 +1,149 @@
+'use client';
+import { useState, useEffect } from 'react';
+import { supabase } from '../../../../lib/supabase';
+import Link from 'next/link';
+
+export default function ScheduleSettingsPage() {
+  const [scanIntervalHours, setScanIntervalHours] = useState(24);
+  const [sendWeeklySummary, setSendWeeklySummary] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+
+  useEffect(() => {
+    const fetchCurrentScheduleRules = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        const response = await fetch('/api/settings/schedules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: session.user.id, action: 'GET' })
+        });
+
+        if (!response.ok) throw new Error('Could not pull your active automated timing rules.');
+        const data = await response.json();
+        
+        setScanIntervalHours(data.config?.scan_interval_hours || 24);
+        setSendWeeklySummary(data.config?.send_weekly_summary ?? true);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCurrentScheduleRules();
+  }, []);
+
+  const handleSaveSettings = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setError('');
+    setSuccessMessage('');
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/settings/schedules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: session.user.id,
+          action: 'SAVE',
+          scanIntervalHours,
+          sendWeeklySummary
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed to update automated check intervals.');
+      
+      setSuccessMessage('Automated configurations saved successfully! Your background scans will reflect this frequency shift immediately.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white text-slate-500 p-12 max-w-5xl mx-auto">
+        <p className="text-sm">Accessing background optimization routine parameters...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-white text-slate-900 pt-16 pb-12 px-8 max-w-2xl mx-auto">
+      
+      <div className="mb-8">
+        <Link href="/feed" className="text-sm font-semibold text-slate-500 hover:text-slate-900 transition-colors">
+          ← Back to primary feed stream
+        </Link>
+      </div>
+
+      <div className="border-b border-slate-100 pb-8">
+        <h1 className="text-3xl font-bold tracking-tight">Checking Intervals</h1>
+        <p className="text-sm text-slate-500 mt-2">
+          Control how often CloudShield runs background analyses to discover abandoned server components or sudden cost spikes across your connected systems[span_4](start_span)[span_4](end_span).
+        </p>
+      </div>
+
+      <form onSubmit={handleSaveSettings} className="mt-10 space-y-8">
+        {error && <div className="p-3 bg-red-50 text-red-600 rounded text-sm">{error}</div>}
+        {successMessage && <div className="p-3 bg-green-50 text-green-700 rounded text-sm font-medium">{successMessage}</div>}
+
+        {/* Input Choice 1: Interval selection dropdown */}
+        <div className="space-y-2">
+          <label className="block text-sm font-semibold text-slate-800">Scan Frequency</label>
+          <p className="text-xs text-slate-400">
+            Select how often our systems request fresh resource metrics directly from your cloud providers.
+          </p>
+          <select
+            value={scanIntervalHours}
+            onChange={(e) => setScanIntervalHours(e.target.value)}
+            className="w-full mt-1 px-3 py-2 border border-slate-200 bg-white rounded-md text-sm text-slate-900 focus:outline-none focus:border-slate-400"
+          >
+            <option value={6}>Every 6 hours (High Frequency)</option>
+            <option value={12}>Every 12 hours (Standard Balance)</option>
+            <option value={24}>Every 24 hours (Once per day)</option>
+            <option value={168}>Once per week</option>
+          </select>
+        </div>
+
+        {/* Input Choice 2: Weekly aggregate recap report checkbox */}
+        <div className="relative flex items-start pt-2">
+          <div className="flex h-5 items-center">
+            <input
+              id="weekly-summary"
+              type="checkbox"
+              checked={sendWeeklySummary}
+              onChange={(e) => setSendWeeklySummary(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+            />
+          </div>
+          <div className="ml-3 text-sm">
+            <label htmlFor="weekly-summary" className="font-semibold text-slate-800">Weekly Progress Recaps</label>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Compile and deliver a single clean plain-language summary report logging total money saved and outstanding waste indicators directly to your active communication channels[span_5](start_span)[span_5](end_span).
+            </p>
+          </div>
+        </div>
+
+        {/* Form Submission Action */}
+        <div className="pt-4">
+          <button
+            type="submit"
+            disabled={saving}
+            className="w-full sm:w-auto px-6 py-2.5 rounded-md text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 transition-colors shadow-sm"
+          >
+            {saving ? 'Updating system cycles...' : 'Save Timing Rules'}
+          </button>
+        </div>
+      </form>
+
+    </div>
+  );
+}
