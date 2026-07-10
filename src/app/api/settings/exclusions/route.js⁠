@@ -1,0 +1,88 @@
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+/**
+ * Handle fetching and creating cloud resource exclusions
+ */
+export async function POST(request) {
+  try {
+    const { userId, action, resourceId, resourceName } = await request.json();
+
+    if (!userId) {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401 });
+    }
+
+    // 1. Verify user role and pull organization context
+    const { data: userProfile, error: profileErr } = await supabaseAdmin
+      .from('users')
+      .select('organization_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileErr || !userProfile) {
+      return new Response(JSON.stringify({ error: 'Access denied' }), { status: 403 });
+    }
+
+    const orgId = userProfile.organization_id;
+
+    // 2. Action routing block: Fetch active exclusions list
+    if (action === 'LIST') {
+      const { data: exclusions, error: fetchErr } = await supabaseAdmin
+        .from('resource_exclusions')
+        .select('*')
+        .eq('organization_id', orgId)
+        .order('created_at', { ascending: false });
+
+      if (fetchErr) throw fetchErr;
+      return new Response(JSON.stringify({ exclusions }), { status: 200 });
+    }
+
+    // 3. Action routing block: Add a new muted asset exclusion
+    if (action === 'ADD') {
+      if (!resourceId) {
+        return new Response(JSON.stringify({ error: 'Resource identifier missing' }), { status: 400 });
+      }
+
+      const { data: newExclusion, error: insertErr } = await supabaseAdmin
+        .from('resource_exclusions')
+        .insert([
+          {
+            organization_id: orgId,
+            resource_id: resourceId,
+            resource_name: resourceName || 'unnamed-ignored-asset',
+            created_by: userId
+          }
+        ])
+        .select()
+        .single();
+
+      if (insertErr) throw insertErr;
+      return new Response(JSON.stringify({ success: true, exclusion: newExclusion }), { status: 200 });
+    }
+
+    // 4. Action routing block: Remove an asset from the exclusion list (Unmute)
+    if (action === 'REMOVE') {
+      if (!resourceId) {
+        return new Response(JSON.stringify({ error: 'Resource identifier missing' }), { status: 400 });
+      }
+
+      const { error: deleteErr } = await supabaseAdmin
+        .from('resource_exclusions')
+        .delete()
+        .eq('organization_id', orgId)
+        .eq('resource_id', resourceId);
+
+      if (deleteErr) throw deleteErr;
+      return new Response(JSON.stringify({ success: true }), { status: 200 });
+    }
+
+    return new Response(JSON.stringify({ error: 'Invalid operation requested' }), { status: 400 });
+
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+  }
+}
