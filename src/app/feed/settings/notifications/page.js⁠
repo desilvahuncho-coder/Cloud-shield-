@@ -1,0 +1,146 @@
+'use client';
+import { useState, useEffect } from 'react';
+import { supabase } from '../../../../lib/supabase';
+import Link from 'next/link';
+
+export default function NotificationSettingsPage() {
+  const [alertChannelUrl, setAlertChannelUrl] = useState('');
+  const [emailAlertsEnabled, setEmailAlertsEnabled] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+
+  useEffect(() => {
+    const fetchCurrentAlertRules = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        const response = await fetch('/api/settings/notifications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: session.user.id, action: 'GET' })
+        });
+
+        if (!response.ok) throw new Error('Could not pull your active alert rules.');
+        const data = await response.json();
+        
+        setAlertChannelUrl(data.config?.chat_webhook_url || '');
+        setEmailAlertsEnabled(data.config?.email_alerts_enabled || false);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCurrentAlertRules();
+  }, []);
+
+  const handleSaveSettings = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setError('');
+    setSuccessMessage('');
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/settings/notifications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: session.user.id,
+          action: 'SAVE',
+          alertChannelUrl,
+          emailAlertsEnabled
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed to update alert routing settings.');
+      
+      setSuccessMessage('Alert settings updated successfully! Your team will now be loop-notified when budget updates occur.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white text-slate-500 p-12 max-w-5xl mx-auto">
+        <p className="text-sm">Accessing team notification streams...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-white text-slate-900 pt-16 pb-12 px-8 max-w-2xl mx-auto">
+      
+      <div className="mb-8">
+        <Link href="/feed" className="text-sm font-semibold text-slate-500 hover:text-slate-900 transition-colors">
+          ← Back to active problems
+        </Link>
+      </div>
+
+      <div className="border-b border-slate-100 pb-8">
+        <h1 className="text-3xl font-bold tracking-tight">Alert Settings</h1>
+        <p className="text-sm text-slate-500 mt-2">
+          Choose where CloudShield sends emergency alerts when unexpected bills strike or empty server resource metrics crawl to zero[span_5](start_span)[span_5](end_span).
+        </p>
+      </div>
+
+      <form onSubmit={handleSaveSettings} className="mt-10 space-y-8">
+        {error && <div className="p-3 bg-red-50 text-red-600 rounded text-sm">{error}</div>}
+        {successMessage && <div className="p-3 bg-green-50 text-green-700 rounded text-sm font-medium">{successMessage}</div>}
+
+        {/* Input Option 1: Chat App Integration */}
+        <div className="space-y-2">
+          <label className="block text-sm font-semibold text-slate-800">Team Chat App Link</label>
+          <p className="text-xs text-slate-400">
+            Paste your team application app integration connection url here (e.g., Slack application incoming webhook address).
+          </p>
+          <input
+            type="url"
+            value={alertChannelUrl}
+            onChange={(e) => setAlertChannelUrl(e.target.value)}
+            placeholder="https://hooks.slack.com/services/..."
+            className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-md text-sm text-slate-900 focus:outline-none focus:border-slate-400 placeholder-slate-300"
+          />
+        </div>
+
+        {/* Input Option 2: Email Flag Toggle */}
+        <div className="relative flex items-start pt-2">
+          <div className="flex h-5 items-center">
+            <input
+              id="email-alerts"
+              type="checkbox"
+              checked={emailAlertsEnabled}
+              onChange={(e) => setEmailAlertsEnabled(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+            />
+          </div>
+          <div className="ml-3 text-sm">
+            <label htmlFor="email-alerts" className="font-semibold text-slate-800">Email Updates</label>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Send an instant text dispatch overview report summary directly to all active account owners inside this organization workspace.
+            </p>
+          </div>
+        </div>
+
+        {/* Save Action Invoker */}
+        <div className="pt-4">
+          <button
+            type="submit"
+            disabled={saving}
+            className="w-full sm:w-auto px-6 py-2.5 rounded-md text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 transition-colors shadow-sm"
+          >
+            {saving ? 'Saving routing preferences...' : 'Save Settings'}
+          </button>
+        </div>
+      </form>
+
+    </div>
+  );
+}
