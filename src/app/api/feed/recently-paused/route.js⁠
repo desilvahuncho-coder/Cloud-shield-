@@ -1,0 +1,61 @@
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+export async function POST(request) {
+  try {
+    const { userId } = await request.json();
+
+    if (!userId) {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401 });
+    }
+
+    // 1. Verify user session and fetch organization mapping
+    const { data: userProfile, error: profileErr } = await supabaseAdmin
+      .from('users')
+      .select('organization_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileErr || !userProfile) {
+      return new Response(JSON.stringify({ error: 'Access denied' }), { status: 403 });
+    }
+
+    const orgId = userProfile.organization_id;
+
+    // Calculate the 24-hour lookback window boundary
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    // 2. Fetch all logs for this organization from the past 24 hours
+    const { data: logs, error: logsErr } = await supabaseAdmin
+      .from('audit_logs')
+      .select('*')
+      .eq('organization_id', orgId)
+      .gt('created_at', twentyFourHoursAgo)
+      .order('created_at', { ascending: false });
+
+    if (logsErr) throw logsErr;
+
+    // 3. Filter out items that have already been restarted
+    const pausedItemsMap = new Map();
+    const restartedSet = new Set();
+
+    // Process chronologically (newest first) to accurately capture the latest state
+    logs.forEach(log => {
+      if (log.action_taken === 'restarted') {
+        restartedSet.add(log.resource_id);
+      } else if (log.action_taken === 'paused') {
+        if (!restartedSet.has(log.resource_id) && !pausedItemsMap.has(log.resource_id)) {
+          pausedItemsMap.set(log.resource_id, log);
+        }
+      }
+    });
+
+    return new Response(JSON.stringify({ recentlyPaused: Array.from(pausedItemsMap.values()) }), { status: 200 });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+  }
+}
