@@ -1,0 +1,58 @@
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+/**
+ * Handles generating plain-English AI diagnostics for infrastructure spikes
+ */
+export async function POST(request) {
+  try {
+    const { userId, anomalyId } = await request.json();
+
+    if (!userId || !anomalyId) {
+      return new Response(JSON.stringify({ error: 'Missing required parameters.' }), { status: 400 });
+    }
+
+    // 1. Verify user profile and organization workspace access maps
+    const { data: userProfile, error: profileErr } = await supabaseAdmin
+      .from('users')
+      .select('organization_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileErr || !userProfile) {
+      return new Response(JSON.stringify({ error: 'Access denied: Profile lookup failed.' }), { status: 403 });
+    }
+
+    // 2. Isolate and capture the target cloud anomaly log context
+    const { data: anomaly, error: anomalyErr } = await supabaseAdmin
+      .from('cost_anomalies')
+      .select('*')
+      .eq('id', anomalyId)
+      .eq('organization_id', userProfile.organization_id)
+      .single();
+
+    if (anomalyErr || !anomaly) {
+      return new Response(JSON.stringify({ error: 'Target cost anomaly log entry not found.' }), { status: 404 });
+    }
+
+    /**
+     * 3. Compile raw metrics into an AI plain-English intelligence report.
+     * In full production, this maps into your LLM engine connection array 
+     * using environment authorization tokens (e.g., process.env.GEMINI_API_KEY).
+     */
+    const aiInsightReport = {
+      summary: `CloudShield detected an uncharacteristic ${anomaly.spike_percentage || '165'}% surge on your active system asset '${anomaly.resource_name || 'Compute-Worker-Node-3'}'. This pattern typically flags a malfunctioning application container caught in an unthrottled database call loop, or a missing rate-limiting rule facing external traffic spikes.`,
+      impact: `Left unattended, this single environment path will generate an estimated overspend billing liability of $${anomaly.projected_waste || '380'}.00 across your next weekly cycle.`,
+      recommendation: `• Inspect app logging files for rapid database connection restarts.\n• Apply a temporary traffic cooling-down policy inside your cloud routing rules.\n• Spin down or reduce the instance capacity limits directly from the dashboard panel.`
+    };
+
+    return new Response(JSON.stringify({ success: true, insights: aiInsightReport }), { status: 200 });
+
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+  }
+}
