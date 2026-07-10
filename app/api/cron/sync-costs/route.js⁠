@@ -1,0 +1,150 @@
+import { createClient } from "@supabase/supabase-js";
+import { NextResponse } from "next/server";
+import { STSClient, AssumeRoleCommand } from "@aws-sdk/client-sts";
+import { CostExplorerClient, GetCostAndUsageCommand } from "@aws-sdk/client-cost-explorer";
+
+// Use Supabase Service Role client to bypass Row Level Security (RLS) during a system-wide cron sweep
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+  process.env.SUPABASE_SERVICE_ROLE_KEY || ""
+);
+
+export async function GET(request) {
+  // Simple cron authorization check (protect from random web requests hitting your endpoint)
+  const authHeader = request.headers.get("authorization");
+  if (
+    process.env.NODE_ENV === "production" &&
+    authHeader !== `Bearer ${process.env.CRON_SECRET}`
+  ) {
+    return NextResponse.json({ error: "Unauthorized cron execution context" }, { status: 401 });
+  }
+
+  const syncLog = [];
+
+  try {
+    // 1. Fetch all active AWS integrations across all organizations
+    const { data: integrations, error: dbError } = await supabaseAdmin
+      .from("aws_integrations")
+      .select("organization_id, aws_account_id, iam_role_arn, external_id")
+      .eq("status", "active");
+
+    if (dbError) throw dbError;
+    if (!integrations || integrations.length === 0) {
+      return NextResponse.json({ message: "No active cloud connections to sync." });
+    }
+
+    // 2. Loop through each integration and process historical costs
+    for (const integration of integrations) {
+      try {
+        const credentials = await assumeCrossAccountRole(integration);
+        const costData = await fetchAwsDailyCosts(credentials);
+        
+        // Analyze cost spikes (anomaly detection)
+        const spikeDetected = detectAnomaly(costData);
+
+        if (spikeDetected.isAnomaly) {
+          // 3. Inject a new priority issue into the organization's problem feed
+          await supabaseAdmin.from("alerts").insert({
+            organization_id: integration.organization_id,
+            title: "Unexpected AWS Cost Spike Detected",
+            description: `Daily spend surged to $${spikeDetected.todayCost.toFixed(2)} (compared to a baseline average of $${spikeDetected.averageCost.toFixed(2)}). Run mitigation sweeps immediately.`,
+            severity: "critical",
+            status: "open",
+            meta: {
+              today_cost: spikeDetected.todayCost,
+              average_cost: spikeDetected.averageCost,
+              anomaly_factor: spikeDetected.factor,
+              raw_cost_history: costData
+            }
+          });
+          syncLog.push({ orgId: integration.organization_id, status: "spike_detected_alert_raised" });
+        } else {
+          syncLog.push({ orgId: integration.organization_id, status: "normal_spend_verified" });
+        }
+
+      } catch (err) {
+        console.error(`Failed to process AWS cost sync for Org ${integration.organization_id}:`, err);
+        syncLog.push({ orgId: integration.organization_id, status: "failed", error: err.message });
+      }
+    }
+
+    return NextResponse.json({ success: true, processedCount: integrations.length, log: syncLog });
+
+  } catch (globalErr) {
+    console.error("Global Cost Sync Worker Failed:", globalErr);
+    return NextResponse.json({ error: globalErr.message }, { status: 500 });
+  }
+}
+
+async function assumeCrossAccountRole(integration) {
+  const stsClient = new STSClient({
+    region: "us-east-1",
+    credentials: {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || ""
+    }
+  });
+
+  const assumeRoleCommand = new AssumeRoleCommand({
+    RoleArn: integration.iam_role_arn,
+    RoleSessionName: `CloudShieldSync-${integration.organization_id}`,
+    ExternalId: integration.external_id,
+    DurationSeconds: 900
+  });
+
+  const response = await stsClient.send(assumeRoleCommand);
+  return {
+    accessKeyId: response.Credentials.AccessKeyId,
+    secretAccessKey: response.Credentials.SecretAccessKey,
+    sessionToken: response.Credentials.SessionToken
+  };
+}
+
+async function fetchAwsDailyCosts(credentials) {
+  const costClient = new CostExplorerClient({ region: "us-east-1", credentials });
+
+  const today = new Date();
+  const sevenDaysAgo = new Date(today);
+  sevenDaysAgo.setDate(today.getDate() - 7);
+
+  const formatDate = (date) => date.toISOString().split("T")[0];
+
+  const command = new GetCostAndUsageCommand({
+    TimePeriod: {
+      Start: formatDate(sevenDaysAgo),
+      End: formatDate(today)
+    },
+    Granularity: "DAILY",
+    Metrics: ["UnblendedCost"]
+  });
+
+  const response = await costClient.send(command);
+
+  // Map historical dates to a simple array of cost values
+  return response.ResultsByTime.map((day) => ({
+    date: day.TimePeriod.Start,
+    cost: parseFloat(day.Total?.UnblendedCost?.Amount || "0")
+  }));
+}
+
+function detectAnomaly(costHistory) {
+  if (costHistory.length < 2) return { isAnomaly: false };
+
+  const todayCost = costHistory[costHistory.length - 1].cost;
+  const historicalDays = costHistory.slice(0, -1);
+  const totalHistorical = historicalDays.reduce((acc, curr) => acc + curr.cost, 0);
+  const averageCost = totalHistorical / historicalDays.length;
+
+  // Skip anomaly triggers if the actual bill amount is negligible (e.g. less than $2.00)
+  if (todayCost < 2.0) {
+    return { isAnomaly: false };
+  }
+
+  // Flag if today's cost is more than 2x the rolling average of the prior 6 days
+  const factor = averageCost > 0 ? todayCost / averageCost : 0;
+  if (factor >= 2.0) {
+    return { isAnomaly: true, todayCost, averageCost, factor };
+  }
+
+  return { isAnomaly: false };
+}
