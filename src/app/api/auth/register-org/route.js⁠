@@ -1,0 +1,44 @@
+import { createClient } from '@supabase/supabase-js';
+
+// Initialize admin client with service key to safely handle cross-table creation fields
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+export async function POST(request) {
+  try {
+    const { userId, email, companyName } = await request.json();
+
+    if (!userId || !email || !companyName) {
+      return new Response(JSON.stringify({ error: 'Missing required fields' }), { status: 400 });
+    }
+
+    // 1. Create the new organization entry
+    const { data: org, error: orgError } = await supabaseAdmin
+      .from('organizations')
+      .insert([{ name: companyName }])
+      .select()
+      .single();
+
+    if (orgError) throw orgError;
+
+    // 2. Link the user to the organization as an admin
+    const { error: userError } = await supabaseAdmin
+      .from('users')
+      .insert([
+        {
+          id: userId,
+          organization_id: org.id,
+          email: email,
+          role: 'admin',
+        },
+      ]);
+
+    if (userError) throw userError;
+
+    return new Response(JSON.stringify({ success: true }), { status: 200 });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+  }
+}
