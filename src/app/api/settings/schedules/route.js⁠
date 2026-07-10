@@ -1,0 +1,73 @@
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+/**
+ * Handles organization background intervals and schedule thresholds
+ */
+export async function POST(request) {
+  try {
+    const { userId, action, scanIntervalHours, sendWeeklySummary } = await request.json();
+
+    if (!userId) {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401 });
+    }
+
+    // 1. Verify user profile and isolate organization mapping rules
+    const { data: userProfile, error: profileErr } = await supabaseAdmin
+      .from('users')
+      .select('organization_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileErr || !userProfile) {
+      return new Response(JSON.stringify({ error: 'Access denied' }), { status: 403 });
+    }
+
+    const orgId = userProfile.organization_id;
+
+    // 2. Action block: Fetch current active automated timing intervals
+    if (action === 'GET') {
+      const { data: scheduleConfig, error: fetchErr } = await supabaseAdmin
+        .from('schedule_settings')
+        .select('*')
+        .eq('organization_id', orgId)
+        .single();
+
+      // If no schedule matrix profile exists yet, return operational defaults
+      if (fetchErr && fetchErr.code === 'PGRST116') {
+        return new Response(JSON.stringify({ config: { scan_interval_hours: 24, send_weekly_summary: true } }), { status: 200 });
+      }
+      if (fetchErr) throw fetchErr;
+
+      return new Response(JSON.stringify({ config: scheduleConfig }), { status: 200 });
+    }
+
+    // 3. Action block: Persist updated schedule interval markers
+    if (action === 'SAVE') {
+      const interval = parseInt(scanIntervalHours || 24, 10);
+      
+      const { data: updatedConfig, error: saveErr } = await supabaseAdmin
+        .from('schedule_settings')
+        .upsert({
+          organization_id: orgId,
+          scan_interval_hours: interval,
+          send_weekly_summary: !!sendWeeklySummary,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'organization_id' })
+        .select()
+        .single();
+
+      if (saveErr) throw saveErr;
+      return new Response(JSON.stringify({ success: true, config: updatedConfig }), { status: 200 });
+    }
+
+    return new Response(JSON.stringify({ error: 'Invalid operation requested' }), { status: 400 });
+
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+  }
+}
