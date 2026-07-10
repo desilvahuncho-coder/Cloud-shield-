@@ -1,0 +1,200 @@
+"use client";
+
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { createClient } from "@/utils/supabase/client";
+
+function RegisterForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const supabase = createClient();
+
+  const [token, setToken] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [orgName, setOrgName] = useState(""); // Used only if creating a fresh account without a token
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    const rawToken = searchParams.get("token");
+    if (rawToken) {
+      setToken(rawToken);
+      verifyToken(rawToken);
+    } else {
+      setLoading(false);
+    }
+  }, [searchParams]);
+
+  async function verifyToken(tokenString) {
+    try {
+      // Query the dynamic token status in the Supabase db
+      const { data: invite, error } = await supabase
+        .from("organization_invites")
+        .select("email, expires_at, organizations(name)")
+        .eq("token", tokenString)
+        .single();
+
+      if (error || !invite) {
+        setErrorMessage("This invitation token is invalid or has expired.");
+        return;
+      }
+
+      // Confirm token is not expired
+      if (new Date(invite.expires_at) < new Date()) {
+        setErrorMessage("This invitation has expired. Request a new seat invite from your administrator.");
+        return;
+      }
+
+      // Pre-populate email from the secure invite record
+      setEmail(invite.email);
+      setOrgName(invite.organizations?.name || "Your Team Workspace");
+    } catch (err) {
+      setErrorMessage("Error verifying registration handshake.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRegister(e) {
+    e.preventDefault();
+    setSubmitting(true);
+    setErrorMessage("");
+
+    try {
+      // Step 1: Sign up the credential identity in Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+      });
+
+      if (authError) throw authError;
+      if (!authData.user) throw new Error("Authentication failed to initialize session.");
+
+      // Step 2: Handle database organization and seat alignment
+      const res = await fetch("/api/auth/register-intake", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: authData.user.id,
+          email,
+          token: token || null,
+          orgName: token ? null : orgName // Only send orgName if setting up a brand-new space
+        })
+      });
+
+      const resData = await res.json();
+      if (!res.ok) throw new Error(resData.error || "Failed to configure workspace details.");
+
+      // Success! Send to dashboard workspace
+      router.push("/");
+      router.refresh();
+
+    } catch (err) {
+      setErrorMessage(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-400 font-sans text-xs uppercase tracking-wider">
+        Verifying seat parameters...
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center py-12 px-6 font-sans text-slate-900">
+      <div className="max-w-md w-full bg-white border border-slate-200 rounded-lg shadow-sm p-8">
+        
+        <header className="mb-8 text-center">
+          <p className="text-[10px] tracking-widest text-indigo-600 font-bold uppercase">CloudShield Workspace</p>
+          <h1 className="text-2xl font-black tracking-tight mt-1">
+            {token ? `Join ${orgName}` : "Create New Account"}
+          </h1>
+          <p className="text-xs text-slate-400 mt-2">
+            {token ? "Your email is locked to this team invitation." : "Start monitoring real-time AWS cost spikes."}
+          </p>
+        </header>
+
+        {errorMessage && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-100 text-red-700 text-xs rounded leading-relaxed">
+            {errorMessage}
+          </div>
+        )}
+
+        <form onSubmit={handleRegister} className="space-y-5">
+          <div>
+            <label className="block text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-1.5">Email Address</label>
+            <input
+              type="email"
+              required
+              disabled={token !== ""} // Keep email locked to invitation address if token is present
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full border border-slate-200 bg-slate-50 focus:bg-white focus:ring-1 focus:ring-indigo-500 rounded p-2.5 text-sm outline-none transition-all disabled:opacity-60"
+            />
+          </div>
+
+          {!token && (
+            <div>
+              <label className="block text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-1.5">Company / Org Name</label>
+              <input
+                type="text"
+                required
+                value={orgName}
+                onChange={(e) => setOrgName(e.target.value)}
+                placeholder="Acme Corp"
+                className="w-full border border-slate-200 bg-slate-50 focus:bg-white focus:ring-1 focus:ring-indigo-500 rounded p-2.5 text-sm outline-none transition-all"
+              />
+            </div>
+          )}
+
+          <div>
+            <label className="block text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-1.5">Password</label>
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full border border-slate-200 bg-slate-50 focus:bg-white focus:ring-1 focus:ring-indigo-500 rounded p-2.5 text-sm outline-none transition-all"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={submitting || (token !== "" && errorMessage !== "")}
+            className="w-full py-3 bg-slate-950 hover:bg-slate-800 text-white font-bold text-xs tracking-wider uppercase rounded transition-all disabled:bg-slate-300"
+          >
+            {submitting ? "Configuring Access..." : token ? "Confirm Seat Registration" : "Create My Team Workspace"}
+          </button>
+        </form>
+
+        <div className="mt-8 pt-6 border-t border-slate-100 text-center">
+          <p className="text-xs text-slate-400">
+            Already have an active seat?{" "}
+            <a href="/login" className="text-indigo-600 hover:text-indigo-800 font-bold">Sign In</a>
+          </p>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+// NextJS Suspense Boundary protection for useSearchParams
+export default function Register() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-400 font-sans text-xs uppercase tracking-wider">
+        Loading core configurations...
+      </div>
+    }>
+      <RegisterForm />
+    </Suspense>
+  );
+}
