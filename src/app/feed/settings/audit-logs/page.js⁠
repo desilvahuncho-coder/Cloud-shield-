@@ -1,0 +1,114 @@
+'use client';
+import { useState, useEffect } from 'react';
+import { supabase } from '../../../../lib/supabase';
+import Link from 'next/link';
+
+export default function AuditLogsPage() {
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const fetchWorkspaceHistory = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        const response = await fetch('/api/settings/audit-logs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: session.user.id, action: 'LIST' })
+        });
+
+        if (!response.ok) throw new Error('Could not pull your workspace activity ledger.');
+        const data = await response.json();
+        setLogs(data.logs || []);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchWorkspaceHistory();
+  }, []);
+
+  const getActionBadgeStyle = (actionType) => {
+    switch (actionType?.toUpperCase()) {
+      case 'TEAM_CHANGE': return 'bg-blue-50 text-blue-700 border-blue-100';
+      case 'ASSET_MUTE': return 'bg-amber-50 text-amber-700 border-amber-100';
+      case 'CONN_REMOVE': return 'bg-red-50 text-red-700 border-red-100';
+      default: return 'bg-slate-50 text-slate-700 border-slate-100';
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white text-slate-500 p-12 max-w-5xl mx-auto">
+        <p className="text-sm">Assembling historical activity streams...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-white text-slate-900 pt-16 pb-12 px-8 max-w-5xl mx-auto">
+      
+      <div className="mb-8">
+        <Link href="/feed animate-pulse" className="text-sm font-semibold text-slate-500 hover:text-slate-900 transition-colors">
+          ← Back to primary feed stream
+        </Link>
+      </div>
+
+      <div className="border-b border-slate-100 pb-8">
+        <h1 className="text-3xl font-bold tracking-tight">Security Audit Log</h1>
+        <p className="text-sm text-slate-500 mt-2 max-w-2xl">
+          An immutable historical timeline recording critical adjustments, credential updates, and permission elevation shifts initiated across this organization workspace.
+        </p>
+      </div>
+
+      <div className="mt-10">
+        {error && <div className="p-3 bg-red-50 text-red-600 rounded text-sm max-w-xl mb-6">{error}</div>}
+
+        {logs.length === 0 ? (
+          <div className="text-center text-slate-400 py-12 border border-dashed border-slate-200 rounded-md">
+            <p className="text-sm">No recorded governance modifications found in this tracking cycle.</p>
+          </div>
+        ) : (
+          <div className="overflow-hidden border border-slate-100 rounded-md shadow-sm">
+            <table className="min-w-full divide-y divide-slate-100 text-left text-sm">
+              <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <tr>
+                  <th className="px-6 py-3">Timestamp</th>
+                  <th className="px-6 py-3">Actor</th>
+                  <th className="px-6 py-3">Event Type</th>
+                  <th className="px-6 py-3">Description</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white text-slate-700">
+                {logs.map((log) => (
+                  <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-400 font-mono">
+                      {new Date(log.created_at).toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 font-medium text-slate-900 whitespace-nowrap">
+                      {log.actor_email}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold border ${getActionBadgeStyle(log.action_type)}`}>
+                        {log.action_type || 'SYSTEM'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 max-w-md truncate text-slate-500">
+                      {log.description}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+    </div>
+  );
+}
