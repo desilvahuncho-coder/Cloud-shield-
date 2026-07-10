@@ -1,0 +1,215 @@
+'use client';
+import { useState, useEffect } from 'react';
+import { supabase } from '../../../../lib/supabase';
+import Link from 'next/link';
+
+export default function ConnectionsPage() {
+  const [connections, setConnections] = useState([]);
+  const [accountLabel, setAccountLabel] = useState('');
+  const [accessRoleArn, setAccessRoleArn] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [processing, setProcessing] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const fetchConnectionProfiles = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      // Pull active role profiles to cross-check admin rights locally[span_10](start_span)[span_10](end_span)
+      const { data: profile } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', session.user.id)
+        .single();
+        
+      setIsAdmin(profile?.role === 'admin');
+
+      const response = await fetch('/api/settings/connections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: session.user.id, action: 'LIST' })
+      });
+
+      if (!response.ok) throw new Error('Could not pull your cloud account connection tree.');
+      const data = await response.json();
+      setConnections(data.connections || []);
+    } catch (err) {
+      setError(err.message);
+    } final: {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchConnectionProfiles();
+  }, []);
+
+  const handleAddConnection = async (e) => {
+    e.preventDefault();
+    setProcessing(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/settings/connections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: session.user.id,
+          action: 'ADD',
+          accountLabel,
+          accessRoleArn
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok) throw new Error(resData.error || 'Failed to link system profile.');
+
+      setSuccess(`Successfully established tracking connection to '${accountLabel}'.`);
+      setAccountLabel('');
+      setAccessRoleArn('');
+      await fetchConnectionProfiles(); // Update local tracking streams
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleRemoveConnection = async (connectionId) => {
+    if (!confirm('Disconnecting this system means CloudShield will stop running cost tracking sweeps here. Proceed?')) return;
+    setError('');
+    setSuccess('');
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/settings/connections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: session.user.id,
+          action: 'REMOVE',
+          connectionId
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed to sever system link credentials.');
+
+      setSuccess('Cloud tracking account profile removed cleanly.');
+      setConnections(prev => prev.filter(c => c.id !== connectionId));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white text-slate-500 p-12 max-w-5xl mx-auto">
+        <p className="text-sm">Mapping connection credential arrays...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-white text-slate-900 pt-16 pb-12 px-8 max-w-4xl mx-auto">
+      
+      <div className="mb-8">
+        <Link href="/feed" className="text-sm font-semibold text-slate-500 hover:text-slate-900 transition-colors">
+          ← Back to primary feed stream
+        </Link>
+      </div>
+
+      <div className="border-b border-slate-100 pb-8">
+        <h1 className="text-3xl font-bold tracking-tight">Connected Accounts</h1>
+        <p className="text-sm text-slate-500 mt-2">
+          Manage the cloud tracking pipelines feeding into your problem dashboard[span_11](start_span)[span_11](end_span). You can connect multiple accounts here to filter all unexpected waste indicators through a single view[span_12](start_span)[span_12](end_span).
+        </p>
+      </div>
+
+      <div className="mt-10 grid grid-cols-1 md:grid-cols-3 gap-12">
+        
+        {/* Form Column block - Restricted to Admins */}
+        <div className="md:col-span-1 space-y-4">
+          <h2 className="text-xs font-semibold tracking-wider text-slate-400 uppercase">Connect a New System</h2>
+          
+          {isAdmin ? (
+            <form onSubmit={handleAddConnection} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700">Account Nickname</label>
+                <input
+                  type="text"
+                  required
+                  value={accountLabel}
+                  onChange={(e) => setAccountLabel(e.target.value)}
+                  placeholder="e.g., Production Core Infrastructure"
+                  className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-md text-sm focus:outline-none focus:border-slate-400 placeholder-slate-300"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700">System Secure Access String</label>
+                <input
+                  type="text"
+                  required
+                  value={accessRoleArn}
+                  onChange={(e) => setAccessRoleArn(e.target.value)}
+                  placeholder="arn:aws:iam::..."
+                  className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-md text-sm focus:outline-none focus:border-slate-400 placeholder-slate-300"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={processing}
+                className="w-full py-2 px-4 rounded-md text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 transition-colors"
+              >
+                {processing ? 'Linking credentials...' : 'Establish Connection'}
+              </button>
+            </form>
+          ) : (
+            <p className="text-xs text-slate-400 bg-slate-50 p-3 rounded border border-slate-100 leading-relaxed">
+              Only workspace **Admins** have permission matrices required to update linked account access parameters[span_13](start_span)[span_13](end_span).
+            </p>
+          )}
+        </div>
+
+        {/* Directory Listings Column block */}
+        <div className="md:col-span-2 space-y-4">
+          <h2 className="text-xs font-semibold tracking-wider text-slate-400 uppercase">Active Monitoring Paths</h2>
+          
+          {error && <div className="p-3 bg-red-50 text-red-600 rounded text-xs">{error}</div>}
+          {success && <div className="p-3 bg-green-50 text-green-700 rounded text-xs font-medium">{success}</div>}
+
+          {connections.length === 0 ? (
+            <div className="text-center text-slate-400 py-12 border border-dashed border-slate-200 rounded-md">
+              <p className="text-xs">No active cloud systems linked to this workspace setup yet.</p>
+            </div>
+          ) : (
+            <div className="bg-white border border-slate-100 rounded-md shadow-sm divide-y divide-slate-100">
+              {connections.map((conn) => (
+                <div key={conn.id} className="p-4 flex items-center justify-between text-xs">
+                  <div className="max-w-md truncate pr-4">
+                    <span className="block font-semibold text-slate-900 text-sm">{conn.account_label}</span>
+                    <span className="block text-slate-400 mt-0.5 font-mono truncate">{conn.aws_role_arn}</span>
+                  </div>
+                  {isAdmin && (
+                    <button
+                      onClick={() => handleRemoveConnection(conn.id)}
+                      className="text-xs font-bold text-red-600 hover:underline flex-shrink-0"
+                    >
+                      Disconnect
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+      </div>
+
+    </div>
+  );
+}
