@@ -1,0 +1,222 @@
+'use client';
+import { useState, useEffect } from 'react';
+import { supabase } from '../../../../lib/supabase';
+import Link from 'next/link';
+
+export default function QuotaSettingsPage() {
+  const [quotas, setQuotas] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [selectedAccount, setSelectedAccount] = useState('');
+  const [monthlyLimit, setMonthlyLimit] = useState('');
+  const [alertThreshold, setAlertThreshold] = useState('80');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const loadQuotaArchitecture = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      // Pull role data for local permission checking
+      const { data: profile } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', session.user.id)
+        .single();
+      setIsAdmin(profile?.role === 'admin');
+
+      // Fetch active cloud accounts to populate the selection dropdown
+      const accountsRes = await fetch('/api/settings/connections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: session.user.id, action: 'LIST' })
+      });
+      const accountsData = await accountsRes.json();
+      setAccounts(accountsData.connections || []);
+
+      // Fetch existing quotas list
+      const quotasRes = await fetch('/api/settings/quotas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: session.user.id, action: 'LIST' })
+      });
+      const quotasData = await quotasRes.json();
+      setQuotas(quotasData.quotas || []);
+
+    } catch (err) {
+      setError('Failed to construct budget layout parameters.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadQuotaArchitecture();
+  }, []);
+
+  const handleSaveQuota = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/settings/quotas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: session.user.id,
+          action: 'SAVE',
+          accountId: selectedAccount,
+          monthlyLimit,
+          alertThreshold
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok) throw new Error(resData.error || 'Failed to establish quota rule.');
+
+      setSuccess('Budget threshold quota saved securely.');
+      setMonthlyLimit('');
+      loadQuotaArchitecture();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white text-slate-500 p-12 max-w-5xl mx-auto">
+        <p className="text-sm">Evaluating ceiling configurations...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-white text-slate-900 pt-16 pb-12 px-8 max-w-5xl mx-auto">
+      
+      <div className="mb-8">
+        <Link href="/feed" className="text-sm font-semibold text-slate-500 hover:text-slate-900 transition-colors">
+          ← Back to primary feed stream
+        </Link>
+      </div>
+
+      <div className="border-b border-slate-100 pb-8">
+        <h1 className="text-3xl font-bold tracking-tight">Budget Quotas & Ceilings</h1>
+        <p className="text-sm text-slate-500 mt-2 max-w-2xl">
+          Set baseline thresholds across connected accounts. CloudShield monitors run rate trajectories against these figures daily to flag early overruns before your monthly billing cycle closes.
+        </p>
+      </div>
+
+      <div className="mt-10 grid grid-cols-1 md:grid-cols-3 gap-12">
+        
+        {/* Configurations Entry Panel */}
+        <div className="md:col-span-1 space-y-4">
+          <h2 className="text-xs font-semibold tracking-wider text-slate-400 uppercase">Define Spending Cap</h2>
+          
+          {isAdmin ? (
+            <form onSubmit={handleSaveQuota} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700">Target Cloud Account</label>
+                <select
+                  required
+                  value={selectedAccount}
+                  onChange={(e) => setSelectedAccount(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 border border-slate-200 bg-white rounded-md text-sm text-slate-900 focus:outline-none focus:border-slate-400"
+                >
+                  <option value="">Select account...</option>
+                  {accounts.map(acc => (
+                    <option key={acc.id} value={acc.id}>{acc.account_label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700">Monthly Budget Cap (USD)</label>
+                <input
+                  type="number"
+                  required
+                  min="1"
+                  value={monthlyLimit}
+                  onChange={(e) => setMonthlyLimit(e.target.value)}
+                  placeholder="e.g., 1200"
+                  className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-md text-sm focus:outline-none focus:border-slate-400 placeholder-slate-300"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700">Early Warning Trigger (%)</label>
+                <select
+                  value={alertThreshold}
+                  onChange={(e) => setAlertThreshold(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 border border-slate-200 bg-white rounded-md text-sm text-slate-900 focus:outline-none focus:border-slate-400"
+                >
+                  <option value="50">50% of cap reached</option>
+                  <option value="80">80% of cap reached (Recommended)</option>
+                  <option value="95">95% of cap reached (Critical)</option>
+                </select>
+              </div>
+
+              <button
+                type="submit"
+                disabled={saving || !selectedAccount}
+                className="w-full py-2 px-4 rounded-md text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 transition-colors shadow-sm"
+              >
+                {saving ? 'Saving ceiling metrics...' : 'Enforce Budget Rule'}
+              </button>
+            </form>
+          ) : (
+            <p className="text-xs text-slate-400 bg-slate-50 p-3 rounded border border-slate-100 leading-relaxed">
+              Modifying workspace financial parameters is restricted exclusively to user accounts flagged with **Admin** access privileges.
+            </p>
+          )}
+        </div>
+
+        {/* Display Panel Matrix */}
+        <div className="md:col-span-2 space-y-4">
+          <h2 className="text-xs font-semibold tracking-wider text-slate-400 uppercase">Active Cost Guardrails</h2>
+          
+          {error && <div className="p-3 bg-red-50 text-red-600 rounded text-xs">{error}</div>}
+          {success && <div className="p-3 bg-green-50 text-green-700 rounded text-xs font-medium">{success}</div>}
+
+          {quotas.length === 0 ? (
+            <div className="text-center text-slate-400 py-12 border border-dashed border-slate-200 rounded-md">
+              <p className="text-xs">No active cost boundaries established for this workspace environment yet.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {quotas.map((quota) => {
+                const associatedAcc = accounts.find(a => a.id === quota.account_id);
+                return (
+                  <div key={quota.id} className="p-4 bg-white border border-slate-100 rounded-md shadow-sm space-y-2">
+                    <div className="flex justify-between items-start">
+                      <span className="block font-semibold text-slate-900 text-sm truncate max-w-[150px]">
+                        {associatedAcc ? associatedAcc.account_label : `Account #${quota.account_id}`}
+                      </span>
+                      <span className="text-[10px] font-bold tracking-wide uppercase bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">
+                        Warn at {quota.alert_threshold_percentage}%
+                      </span>
+                    </div>
+                    <div className="pt-1">
+                      <span className="text-xs text-slate-400 block uppercase font-medium tracking-wider">Limit Ceiling</span>
+                      <span className="text-2xl font-bold text-slate-900">${quota.monthly_limit.toLocaleString()}</span>
+                      <span className="text-xs text-slate-400 block mt-0.5">Renews on 1st of month</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+      </div>
+
+    </div>
+  );
+}
