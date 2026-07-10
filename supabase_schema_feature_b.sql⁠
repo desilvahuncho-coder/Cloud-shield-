@@ -1,0 +1,21 @@
+-- Create AWS Connections table linked directly to the Organization
+create table public.aws_connections (
+    id uuid default gen_random_uuid() primary key,
+    organization_id uuid references public.organizations(id) on delete cascade not null,
+    aws_account_id text not null,
+    aws_role_arn text not null,
+    created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+    constraint unique_org_connection unique(organization_id)
+);
+
+-- Enable Row Level Security
+alter table public.aws_connections enable row level security;
+
+-- RLS Policies: Ensure all 3 user seats can view the connection, but only admins can modify it
+create policy "Users can view their organization's AWS connection"
+    on public.aws_connections for select
+    using (organization_id in (select organization_id from public.users where id = auth.uid()));
+
+create policy "Admins can manage their organization's AWS connection"
+    on public.aws_connections for all
+    using (organization_id in (select organization_id from public.users where id = auth.uid() and role = 'admin'));
