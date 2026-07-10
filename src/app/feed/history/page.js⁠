@@ -1,0 +1,150 @@
+'use client';
+import { useState, useEffect } from 'react';
+import { supabase } from '../../../lib/supabase';
+import Link from 'next/link';
+
+export default function HistoryPage() {
+  const [historyData, setHistoryData] = useState({ history: [], totalLifetimeSaved: '0.00', totalActionsCount: 0 });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const fetchHistoryStream = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        const response = await fetch('/api/feed/history', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: session.user.id })
+        });
+
+        if (!response.ok) throw new Error('Could not pull your organization savings history logs.');
+
+        const data = await response.json();
+        setHistoryData(data);
+      } catch (err) {
+        setError(err.message);
+      } final: {
+        setLoading(false);
+      }
+    };
+
+    fetchHistoryStream();
+  }, []);
+
+  const formatDate = (isoString) => {
+    return new Date(isoString).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white text-slate-500 p-12 max-w-5xl mx-auto">
+        <p className="text-sm">Compiling historical adjustments...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-white text-slate-900 pt-16 pb-12 px-8 max-w-5xl mx-auto">
+      
+      {/* Navigation Header back link */}
+      <div className="mb-8">
+        <Link href="/feed" className="text-sm font-semibold text-slate-500 hover:text-slate-900 transition-colors">
+          ← Back to active problems
+        </Link>
+      </div>
+
+      {error && <div className="mb-8 p-3 bg-red-50 text-red-600 rounded text-sm max-w-md">{error}</div>}
+
+      {/* Summary Dashboard Cards */}
+      <div className="grid grid-cols-2 gap-12 border-b border-slate-100 pb-12">
+        <div>
+          <span className="block text-xs font-semibold tracking-wider text-slate-400 uppercase">Lifetime Money Kept</span>
+          <span className="block text-5xl font-bold tracking-tight text-green-600 mt-2">
+            ${historyData.totalLifetimeSaved}
+          </span>
+        </div>
+        <div>
+          <span className="block text-xs font-semibold tracking-wider text-slate-400 uppercase">Total Optimizations Run</span>
+          <span className="block text-5xl font-bold tracking-tight text-slate-900 mt-2">
+            {historyData.totalActionsCount}
+          </span>
+        </div>
+      </div>
+
+      {/* Historical Logs Streams */}
+      <div className="mt-12">
+        <h2 className="text-xs font-semibold tracking-wider text-slate-400 uppercase mb-6">Historical Log Timeline</h2>
+        
+        {historyData.history.length === 0 ? (
+          <div className="text-center text-slate-400 py-16 border border-dashed border-slate-200 rounded-md">
+            <p className="text-sm">No historical budget choices have been recorded for this organization yet.</p>
+          </div>
+        ) : (
+          <div className="flow-root">
+            <ul className="-mb-8">
+              {historyData.history.map((log, idx) => (
+                <li key={log.id}>
+                  <div className="relative pb-8">
+                    {/* Visual Line connector between steps */}
+                    {idx !== historyData.history.length - 1 && (
+                      <span className="absolute top-4 left-4 -ml-px h-full w-0.5 bg-slate-100" aria-hidden="true" />
+                    )}
+                    
+                    <div className="relative flex space-x-3 items-start">
+                      {/* Event point type marker badges */}
+                      <div>
+                        <span className={`h-8 w-8 rounded-full flex items-center justify-center ring-8 ring-white text-xs ${
+                          log.action_taken === 'paused' ? 'bg-amber-50 text-amber-700 font-bold' : 'bg-green-50 text-green-700 font-bold'
+                        }`}>
+                          {log.action_taken === 'paused' ? '■' : '▲'}
+                        </span>
+                      </div>
+                      
+                      {/* Narrative Text Explanations strictly without cloud infrastructure syntax[span_6](start_span)[span_6](end_span) */}
+                      <div className="flex-1 min-w-0 pt-1.5 flex justify-between space-x-4">
+                        <div>
+                          <p className="text-sm text-slate-600">
+                            {log.action_taken === 'paused' ? (
+                              <span>
+                                Placed virtual cloud server <strong className="text-slate-900">#{log.resource_id}</strong> on standby to protect your budget.
+                              </span>
+                            ) : log.action_taken === 'restarted' ? (
+                              <span>
+                                Brought virtual cloud server <strong className="text-slate-900">#{log.resource_id}</strong> back online following team confirmation.
+                              </span>
+                            ) : (
+                              <span>Cleared an unexpected spending notice event block.</span>
+                            )}
+                          </p>
+                          <span className="block text-xs text-slate-400 mt-1">{formatDate(log.created_at)}</span>
+                        </div>
+                        
+                        {/* Financial Delta Tag updates */}
+                        <div className="text-right text-sm font-medium whitespace-nowrap">
+                          <span className={log.estimated_savings >= 0 ? 'text-green-600 font-bold' : 'text-slate-500'}>
+                            {log.estimated_savings >= 0 ? `+$${log.estimated_savings}` : `-$${Math.abs(log.estimated_savings)}`}
+                          </span>
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+    </div>
+  );
+}
