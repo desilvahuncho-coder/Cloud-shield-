@@ -1,0 +1,61 @@
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+export async function POST(request) {
+  try {
+    const { userId } = await request.json();
+
+    if (!userId) {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401 });
+    }
+
+    // 1. Verify user context and locate the organization ID
+    const { data: userProfile, error: profileErr } = await supabaseAdmin
+      .from('users')
+      .select('organization_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileErr || !userProfile) {
+      return new Response(JSON.stringify({ error: 'Access denied' }), { status: 403 });
+    }
+
+    const orgId = userProfile.organization_id;
+
+    // 2. Query the entire historical timeline of optimization actions
+    const { data: logs, error: logsErr } = await supabaseAdmin
+      .from('audit_logs')
+      .select(`
+        id,
+        resource_id,
+        action_taken,
+        estimated_savings,
+        created_at,
+        users (
+          id
+        )
+      `)
+      .eq('organization_id', orgId)
+      .order('created_at', { ascending: false });
+
+    if (logsErr) throw logsErr;
+
+    // 3. Compute total realized lifetime metrics across historical entries
+    const totalLifetimeSaved = logs.reduce((sum, item) => {
+      return sum + parseFloat(item.estimated_savings || 0);
+    }, 0);
+
+    return new Response(JSON.stringify({
+      history: logs,
+      totalLifetimeSaved: totalLifetimeSaved.toFixed(2),
+      totalActionsCount: logs.length
+    }), { status: 200 });
+
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+  }
+}
