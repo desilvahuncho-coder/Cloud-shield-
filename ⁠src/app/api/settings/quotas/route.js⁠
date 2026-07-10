@@ -1,0 +1,86 @@
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+/**
+ * Manages custom organizational cost quotas and limit caps
+ */
+export async function POST(request) {
+  try {
+    const { userId, action, accountId, monthlyLimit, alertThreshold } = await request.json();
+
+    if (!userId) {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401 });
+    }
+
+    // 1. Verify user profile and check role-based access limits
+    const { data: userProfile, error: profileErr } = await supabaseAdmin
+      .from('users')
+      .select('organization_id, role')
+      .eq('id', userId)
+      .single();
+
+    if (profileErr || !userProfile) {
+      return new Response(JSON.stringify({ error: 'Access denied: Workspace verification failed.' }), { status: 403 });
+    }
+
+    const orgId = userProfile.organization_id;
+    const userRole = userProfile.role;
+
+    // 2. Action block: List all established budget quotas
+    if (action === 'LIST') {
+      const { data: quotas, error: fetchErr } = await supabaseAdmin
+        .from('budget_quotas')
+        .select('*')
+        .eq('organization_id', orgId)
+        .order('created_at', { ascending: false });
+
+      if (fetchErr) throw fetchErr;
+      return new Response(JSON.stringify({ quotas }), { status: 200 });
+    }
+
+    // 3. RBAC Enforcement: Restrict quota updates to Admins
+    if (userRole !== 'admin') {
+      return new Response(JSON.stringify({ error: 'Unauthorized: Only Admins can alter financial ceilings.' }), { status: 403 });
+    }
+
+    // 4. Action block: Create or update a quota ceiling rule
+    if (action === 'SAVE') {
+      if (!accountId || !monthlyLimit) {
+        return new Response(JSON.stringify({ error: 'Missing account targeting or limit thresholds.' }), { status: 400 });
+      }
+
+      const { data: quota, error: saveErr } = await supabaseAdmin
+        .from('budget_quotas')
+        .upsert({
+          organization_id: orgId,
+          account_id: accountId,
+          monthly_limit: parseFloat(monthlyLimit),
+          alert_threshold_percentage: parseInt(alertThreshold || 80, 10),
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'organization_id,account_id' })
+        .select()
+        .single();
+
+      if (saveErr) throw saveErr;
+
+      // 5. Append event to Governance Audit Logs (Feature P)
+      await supabaseAdmin.from('audit_logs').insert([{
+        organization_id: orgId,
+        actor_email: userProfile.email,
+        action_type: 'QUOTA_CHANGE',
+        description: `Updated budget ceiling for account #${accountId} to $${monthlyLimit} (Alert at ${alertThreshold}%)`
+      }]);
+
+      return new Response(JSON.stringify({ success: true, quota }), { status: 200 });
+    }
+
+    return new Response(JSON.stringify({ error: 'Invalid operation requested.' }), { status: 400 });
+
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+  }
+}
