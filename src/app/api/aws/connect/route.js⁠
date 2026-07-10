@@ -1,0 +1,92 @@
+import { createClient } from '@supabase/supabase-js';
+import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
+import { CostExplorerClient, GetCostAndUsageCommand } from '@aws-sdk/client-cost-explorer';
+
+// Initialize admin client to perform secure organizational cross-checks
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+/**
+ * Handles securely verifying and storing the organization's cloud provider connection
+ */
+export async function POST(request) {
+  try {
+    const { awsAccountId, awsRoleArn, adminUserId } = await request.json();
+
+    if (!awsAccountId || !awsRoleArn || !adminUserId) {
+      return new Response(JSON.stringify({ error: 'Missing connection details.' }), { status: 400 });
+    }
+
+    // 1. Re-validate on the server that the requesting user is an authorized admin
+    const { data: adminUser, error: adminErr } = await supabaseAdmin
+      .from('users')
+      .select('organization_id, role')
+      .eq('id', adminUserId)
+      .single();
+
+    if (adminErr || !adminUser || adminUser.role !== 'admin') {
+      return new Response(JSON.stringify({ error: 'Unauthorized access level' }), { status: 403 });
+    }
+
+    const orgId = adminUser.organization_id;
+
+    // 2. Assume the role using AWS STS to generate temporary, short-lived credentials
+    const stsClient = new STSClient({ region: 'us-east-1' });
+    const assumeRoleCmd = new AssumeRoleCommand({
+      RoleArn: awsRoleArn,
+      RoleSessionName: `CloudShieldSession-${orgId}`,
+      DurationSeconds: 900 // Minimum 15 minutes window
+    });
+
+    const assumedRole = await stsClient.send(assumeRoleCmd);
+    const credentials = assumedRole.Credentials;
+
+    // 3. Test the connection instantly by requesting total cost parameters via Cost Explorer
+    const ceClient = new CostExplorerClient({
+      region: 'us-east-1',
+      credentials: {
+        accessKeyId: credentials.AccessKeyId,
+        secretAccessKey: credentials.SecretAccessKey,
+        sessionToken: credentials.SessionToken,
+      },
+    });
+
+    // Structure dynamic dates covering the current calendar month window safely
+    const now = new Date();
+    const startStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`;
+    
+    // Ensure end date falls forward by a day to maintain valid interval gaps in API queries
+    const tomorrow = new Date();
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const endStr = tomorrow.toISOString().split('T')[0];
+
+    const costCmd = new GetCostAndUsageCommand({
+      TimePeriod: { Start: startStr, End: endStr },
+      Granularity: 'MONTHLY',
+      Metrics: ['UnblendedCost'],
+    });
+
+    // Execute the cloud call to confirm our permissions function flawlessly
+    await ceClient.send(costCmd);
+
+    // 4. If successful, persist only the secure Role ARN string to our configuration database
+    const { error: saveErr } = await supabaseAdmin
+      .from('aws_connections')
+      .upsert({
+        organization_id: orgId,
+        aws_account_id: awsAccountId,
+        aws_role_arn: awsRoleArn,
+      }, { onConflict: 'organization_id' });
+
+    if (saveErr) throw saveErr;
+
+    return new Response(JSON.stringify({ success: true }), { status: 200 });
+  } catch (error) {
+    return new Response(
+      JSON.stringify({ error: `Connection failed: Verification check rejected. (${error.message})` }), 
+      { status: 500 }
+    );
+  }
+}
