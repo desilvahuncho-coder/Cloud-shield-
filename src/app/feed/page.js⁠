@@ -1,0 +1,88 @@
+'use client';
+import { useState, useEffect } from 'react';
+import { supabase } from '../../lib/supabase';
+
+export default function FeedPage() {
+  const [metrics, setMetrics] = useState({ currentCost: '0.00', forecastCost: '0.00', totalSaved: '0.00' });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const fetchTopLineNumbers = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        const response = await fetch('/api/feed/top-line', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: session.user.id }),
+        });
+
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Failed to populate feed metrics.');
+
+        setMetrics(result);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTopLineNumbers();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white text-slate-500 p-12">
+        <p className="text-sm">Analyzing current spending data...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-white text-slate-900 pt-16 pb-12 px-8 max-w-5xl mx-auto">
+      {error && (
+        <div className="mb-8 p-3 bg-red-50 text-red-600 rounded text-sm max-w-md">
+          {error}
+        </div>
+      )}
+
+      {/* Ultra flat row layout with explicit layout parameters */}
+      <div className="grid grid-cols-3 gap-12 border-b border-slate-100 pb-12">
+        <div>
+          <span className="block text-xs font-semibold tracking-wider text-slate-400 uppercase">
+            Cost so far this month
+          </span>
+          <span className="block text-5xl font-bold tracking-tight text-slate-900 mt-2">
+            ${metrics.currentCost}
+          </span>
+        </div>
+
+        <div>
+          <span className="block text-xs font-semibold tracking-wider text-slate-400 uppercase">
+            Expected total by month-end
+          </span>
+          <span className="block text-5xl font-bold tracking-tight text-slate-900 mt-2">
+            ${metrics.forecastCost}
+          </span>
+        </div>
+
+        <div>
+          <span className="block text-xs font-semibold tracking-wider text-slate-400 uppercase">
+            Total saved this month
+          </span>
+          <span className="block text-5xl font-bold tracking-tight text-green-600 mt-2">
+            ${metrics.totalSaved}
+          </span>
+        </div>
+      </div>
+
+      {/* Feed content rows placeholder - to be populated by Feature D/E/F */}
+      <div className="mt-16 text-center text-slate-400 py-12 border border-dashed border-slate-200 rounded">
+        <p className="text-sm">The background cost checks are scanning. Detected items will populate here.</p>
+      </div>
+    </div>
+  );
+}
