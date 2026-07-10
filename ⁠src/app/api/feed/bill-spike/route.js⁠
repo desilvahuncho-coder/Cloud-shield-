@@ -1,0 +1,144 @@
+import { createClient } from '@supabase/supabase-js';
+import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
+import { CostExplorerClient, GetCostAndUsageCommand } from '@aws-sdk/client-cost-explorer';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+export async function POST(request) {
+  try {
+    const { userId } = await request.json();
+
+    if (!userId) {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401 });
+    }
+
+    // 1. Verify user session and fetch organization mapping
+    const { data: userProfile, error: profileErr } = await supabaseAdmin
+      .from('users')
+      .select('organization_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileErr || !userProfile) {
+      return new Response(JSON.stringify({ error: 'Access denied' }), { status: 403 });
+    }
+
+    const orgId = userProfile.organization_id;
+
+    // 2. Fetch the AWS role configuration for this organization
+    const { data: awsConn, error: connErr } = await supabaseAdmin
+      .from('aws_connections')
+      .select('aws_role_arn')
+      .eq('organization_id', orgId)
+      .single();
+
+    if (connErr || !awsConn) {
+      return new Response(JSON.stringify({ error: 'No active cloud connection found.' }), { status: 404 });
+    }
+
+    // 3. Assume the IAM role via AWS STS to get short-lived credentials
+    const stsClient = new STSClient({ region: 'us-east-1' });
+    const assumeRoleCmd = new AssumeRoleCommand({
+      RoleArn: awsConn.aws_role_arn,
+      RoleSessionName: `CloudShieldSpikeScanner-${orgId}`,
+      DurationSeconds: 900
+    });
+
+    const assumedRole = await stsClient.send(assumeRoleCmd);
+    const credentials = assumedRole.Credentials;
+
+    const ceClient = new CostExplorerClient({
+      region: 'us-east-1',
+      credentials: {
+        accessKeyId: credentials.AccessKeyId,
+        secretAccessKey: credentials.SecretAccessKey,
+        sessionToken: credentials.SessionToken,
+      },
+    });
+
+    // 4. Set up date configurations for calculations
+    const tzOffset = new Date().getTimezoneOffset() * 60000;
+    const todayLocal = new Date(Date.now() - tzOffset);
+    
+    const todayStr = todayLocal.toISOString().split('T')[0];
+    
+    const tomorrowLocal = new Date(todayLocal);
+    tomorrowLocal.setDate(tomorrowLocal.getDate() + 1);
+    const tomorrowStr = tomorrowLocal.toISOString().split('T')[0];
+
+    const sevenDaysAgoLocal = new Date(todayLocal);
+    sevenDaysAgoLocal.setDate(sevenDaysAgoLocal.getDate() - 7);
+    const sevenDaysAgoStr = sevenDaysAgoLocal.toISOString().split('T')[0];
+
+    // 5. Query 1: Get total baseline costs for the past 7 days up until today
+    const baselineCmd = new GetCostAndUsageCommand({
+      TimePeriod: { Start: sevenDaysAgoStr, End: todayStr },
+      Granularity: 'DAILY',
+      Metrics: ['UnblendedCost']
+    });
+    
+    const baselineData = await ceClient.send(baselineCmd);
+    const dailyResults = baselineData.ResultsByTime || [];
+    
+    const totalPastWeekCost = dailyResults.reduce((sum, day) => {
+      return sum + parseFloat(day.Total?.UnblendedCost?.Amount || 0);
+    }, 0);
+    
+    const sevenDayAverage = totalPastWeekCost / 7;
+
+    // 6. Query 2: Get today's costs broken down by cloud service to find the driver
+    const todayCmd = new GetCostAndUsageCommand({
+      TimePeriod: { Start: todayStr, End: tomorrowStr },
+      Granularity: 'DAILY',
+      Metrics: ['UnblendedCost'],
+      GroupBy: [{ Type: 'DIMENSION', Key: 'SERVICE' }]
+    });
+
+    const todayData = await ceClient.send(todayCmd);
+    const serviceBreakdowns = todayData.ResultsByTime[0]?.Groups || [];
+
+    let todayTotalCost = 0;
+    let highestServiceCost = 0;
+    let drivingService = 'Unknown Service';
+
+    // Parse service spending metrics to isolate the highest spender
+    serviceBreakdowns.forEach(group => {
+      const cost = parseFloat(group.Metrics?.UnblendedCost?.Amount || 0);
+      const serviceName = group.Keys[0] || 'Unknown Service';
+      
+      todayTotalCost += cost;
+      if (cost > highestServiceCost) {
+        highestServiceCost = cost;
+        drivingService = serviceName;
+      }
+    });
+
+    const detectedProblems = [];
+
+    // 7. Check if today's bill is more than double the 7-day daily baseline average
+    if (todayTotalCost > (sevenDayAverage * 2) && todayTotalCost > 0) {
+      const dollarDifference = todayTotalCost - sevenDayAverage;
+
+      detectedProblems.push({
+        id: `spike-${todayStr}`,
+        type: 'bill_spike',
+        drivingService: drivingService, // Internal string tracked for translation in UI
+        dollarDifference: dollarDifference.toFixed(2),
+        todayTotal: todayTotalCost.toFixed(2),
+        baselineAverage: sevenDayAverage.toFixed(2),
+        riskLevel: 'high' // Requirement: Bill spikes must be mapped as high risk
+      });
+    }
+
+    return new Response(JSON.stringify({ problems: detectedProblems }), { status: 200 });
+  } catch (error) {
+    // Gracefully handle situations where there isn't enough data available yet in new accounts
+    if (error.name === 'DataUnavailableException') {
+      return new Response(JSON.stringify({ problems: [], note: 'Insufficient cloud billing history.' }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+  }
+}
