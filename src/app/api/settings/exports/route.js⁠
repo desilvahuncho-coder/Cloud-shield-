@@ -1,0 +1,77 @@
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+/**
+ * Compiles and streams workspace infrastructure logs as formatted downloads
+ */
+export async function POST(request) {
+  try {
+    const { userId, format } = await request.json();
+
+    if (!userId) {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401 });
+    }
+
+    // 1. Authenticate user context and establish organization containment boundaries
+    const { data: userProfile, error: profileErr } = await supabaseAdmin
+      .from('users')
+      .select('organization_id, email')
+      .eq('id', userId)
+      .single();
+
+    if (profileErr || !userProfile) {
+      return new Response(JSON.stringify({ error: 'Access denied: Profile validation failed.' }), { status: 403 });
+    }
+
+    const orgId = userProfile.organization_id;
+
+    // 2. Extract active cost tracking records for compilation
+    const { data: records, error: fetchErr } = await supabaseAdmin
+      .from('cost_anomalies')
+      .select('resource_name, spike_percentage, projected_waste, status, created_at')
+      .eq('organization_id', orgId)
+      .order('created_at', { ascending: false });
+
+    if (fetchErr) throw fetchErr;
+
+    // 3. Log extraction transaction inside Governance Audit Logs (Feature P)
+    await supabaseAdmin.from('audit_logs').insert([{
+      organization_id: orgId,
+      actor_email: userProfile.email,
+      action_type: 'DATA_EXPORT',
+      description: `Generated a workspace infrastructure snapshot download in ${format?.toUpperCase()} format.`
+    }]);
+
+    // 4. Formatting Matrix Block: Deliver target content wrappers
+    if (format === 'csv') {
+      const csvHeaders = 'Resource Name,Spike Percentage,Projected Monthly Waste (USD),Status,Timestamp\n';
+      const csvRows = records.map(r => 
+        `"${r.resource_name || 'Unknown'}","${r.spike_percentage || 0}%","$${r.projected_waste || 0}","${r.status || 'open'}","${new Date(r.created_at).toLocaleString()}"`
+      ).join('\n');
+
+      return new Response(csvHeaders + csvRows, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/csv',
+          'Content-Disposition': `attachment; filename="cloudshield_cost_report_${Date.now()}.csv"`
+        }
+      });
+    }
+
+    // Default structure fallback: Structured JSON payload arrays
+    return new Response(JSON.stringify({ reportGeneratedAt: new Date().toISOString(), totalEntries: records.length, data: records }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Disposition': `attachment; filename="cloudshield_cost_report_${Date.now()}.json"`
+      }
+    });
+
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+  }
+}
