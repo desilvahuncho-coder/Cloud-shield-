@@ -1,0 +1,71 @@
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+/**
+ * Manages configuration routing for external team alert pipelines
+ */
+export async function POST(request) {
+  try {
+    const { userId, action, alertChannelUrl, emailAlertsEnabled } = await request.json();
+
+    if (!userId) {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401 });
+    }
+
+    // 1. Verify user profile and extract organization context
+    const { data: userProfile, error: profileErr } = await supabaseAdmin
+      .from('users')
+      .select('organization_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileErr || !userProfile) {
+      return new Response(JSON.stringify({ error: 'Access denied' }), { status: 403 });
+    }
+
+    const orgId = userProfile.organization_id;
+
+    // 2. Action block: Fetch current active communication pathways
+    if (action === 'GET') {
+      const { data: config, error: fetchErr } = await supabaseAdmin
+        .from('notification_settings')
+        .select('*')
+        .eq('organization_id', orgId)
+        .single();
+
+      // If no config profile exists yet, return empty standard defaults
+      if (fetchErr && fetchErr.code === 'PGRST116') {
+        return new Response(JSON.stringify({ config: { chat_webhook_url: '', email_alerts_enabled: false } }), { status: 200 });
+      }
+      if (fetchErr) throw fetchErr;
+
+      return new Response(JSON.stringify({ config }), { status: 200 });
+    }
+
+    // 3. Action block: Persist updated channel criteria parameters
+    if (action === 'SAVE') {
+      const { data: updatedConfig, error: saveErr } = await supabaseAdmin
+        .from('notification_settings')
+        .upsert({
+          organization_id: orgId,
+          chat_webhook_url: alertChannelUrl || '',
+          email_alerts_enabled: !!emailAlertsEnabled,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'organization_id' })
+        .select()
+        .single();
+
+      if (saveErr) throw saveErr;
+      return new Response(JSON.stringify({ success: true, config: updatedConfig }), { status: 200 });
+    }
+
+    return new Response(JSON.stringify({ error: 'Invalid operation requested' }), { status: 400 });
+
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+  }
+}
