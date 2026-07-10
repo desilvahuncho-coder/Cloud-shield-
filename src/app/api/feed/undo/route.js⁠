@@ -1,0 +1,85 @@
+import { createClient } from '@supabase/supabase-js';
+import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
+import { EC2Client, StartInstancesCommand } from '@aws-sdk/client-ec2';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+export async function POST(request) {
+  try {
+    const { userId, resourceId, estimatedSavings } = await request.json();
+
+    if (!userId || !resourceId) {
+      return new Response(JSON.stringify({ error: 'Missing parameters required for reversal.' }), { status: 400 });
+    }
+
+    // 1. Re-validate session and organization ownership[span_3](start_span)[span_3](end_span)
+    const { data: userProfile, error: profileErr } = await supabaseAdmin
+      .from('users')
+      .select('organization_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileErr || !userProfile) {
+      return new Response(JSON.stringify({ error: 'Server authentication validation rejected.' }), { status: 403 });
+    }
+
+    const orgId = userProfile.organization_id;
+
+    // 2. Fetch shared cloud connection details
+    const { data: awsConn, error: connErr } = await supabaseAdmin
+      .from('aws_connections')
+      .select('aws_role_arn')
+      .eq('organization_id', orgId)
+      .single();
+
+    if (connErr || !awsConn) {
+      return new Response(JSON.stringify({ error: 'No cloud account profile linked to this organization.' }), { status: 404 });
+    }
+
+    // 3. Request temporary credentials via AWS STS AssumeRole[span_4](start_span)[span_4](end_span)
+    const stsClient = new STSClient({ region: 'us-east-1' });
+    const assumeRoleCmd = new AssumeRoleCommand({
+      RoleArn: awsConn.aws_role_arn,
+      RoleSessionName: `CloudShieldUndo-${orgId}`,
+      DurationSeconds: 900
+    });
+
+    const assumedRole = await stsClient.send(assumeRoleCmd);
+    const credentials = assumedRole.Credentials;
+
+    // 4. Call AWS SDK ec2:StartInstances to turn the server back on[span_5](start_span)[span_5](end_span)
+    const ec2Client = new EC2Client({
+      region: 'us-east-1',
+      credentials: {
+        accessKeyId: credentials.AccessKeyId,
+        secretAccessKey: credentials.SecretAccessKey,
+        sessionToken: credentials.SessionToken,
+      },
+    });
+
+    const startCmd = new StartInstancesCommand({ InstanceIds: [resourceId] });
+    await ec2Client.send(startCmd);
+
+    // 5. Log the reversal to the audit log table with action type "restarted[span_6](start_span)"[span_6](end_span)
+    const { error: logErr } = await supabaseAdmin
+      .from('audit_logs')
+      .insert([
+        {
+          organization_id: orgId,
+          user_id: userId,
+          resource_id: resourceId,
+          action_taken: 'restarted',
+          estimated_savings: -parseFloat(estimatedSavings || 0) // Counterbalance savings metric
+        }
+      ]);
+
+    if (logErr) throw logErr;
+
+    return new Response(JSON.stringify({ success: true }), { status: 200 });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: `Failed to turn server back on: ${error.message}` }), { status: 500 });
+  }
+}
