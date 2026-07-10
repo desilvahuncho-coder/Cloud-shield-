@@ -1,0 +1,150 @@
+import { createClient } from '@supabase/supabase-js';
+import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
+import { EC2Client, DescribeInstancesCommand } from '@aws-sdk/client-ec2';
+import { CloudWatchClient, GetMetricDataCommand } from '@aws-sdk/client-cloudwatch';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+/**
+ * Helper function to estimate a server's monthly baseline cost based on its structural type
+ */
+function estimateMonthlyCost(instanceType) {
+  const pricingMatrix = {
+    't3.nano': 4.00, 't3.micro': 8.00, 't3.small': 16.00, 't3.medium': 32.00, 't3.large': 64.00,
+    'm5.large': 140.00, 'm5.xlarge': 280.00, 'c5.large': 120.00, 'r5.large': 180.00
+  };
+  return pricingMatrix[instanceType] || 50.00; // Return flat baseline fallback for unlisted types
+}
+
+/**
+ * Primary server route to query running machines and filter by low utilization threshold metrics
+ */
+export async function POST(request) {
+  try {
+    const { userId } = await request.json();
+
+    if (!userId) {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401 });
+    }
+
+    // 1. Verify user exists and retrieve organization mapping parameters
+    const { data: userProfile, error: profileErr } = await supabaseAdmin
+      .from('users')
+      .select('organization_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileErr || !userProfile) {
+      return new Response(JSON.stringify({ error: 'Access denied' }), { status: 403 });
+    }
+
+    const orgId = userProfile.organization_id;
+
+    // 2. Fetch active AWS configuration settings for the organization
+    const { data: awsConn, error: connErr } = await supabaseAdmin
+      .from('aws_connections')
+      .select('aws_role_arn')
+      .eq('organization_id', orgId)
+      .single();
+
+    if (connErr || !awsConn) {
+      return new Response(JSON.stringify({ error: 'No active cloud connection found.' }), { status: 404 });
+    }
+
+    // 3. Request short-term access credentials via AWS STS AssumeRole
+    const stsClient = new STSClient({ region: 'us-east-1' });
+    const assumeRoleCmd = new AssumeRoleCommand({
+      RoleArn: awsConn.aws_role_arn,
+      RoleSessionName: `CloudShieldIdleScanner-${orgId}`,
+      DurationSeconds: 900
+    });
+
+    const assumedRole = await stsClient.send(assumeRoleCmd);
+    const credentials = assumedRole.Credentials;
+
+    const awsCredentials = {
+      accessKeyId: credentials.AccessKeyId,
+      secretAccessKey: credentials.SecretAccessKey,
+      sessionToken: credentials.SessionToken,
+    };
+
+    // 4. Query live server environments via EC2 API
+    const ec2Client = new EC2Client({ region: 'us-east-1', credentials: awsCredentials });
+    const ec2Cmd = new DescribeInstancesCommand({
+      Filters: [{ Name: 'instance-state-name', Values: ['running'] }]
+    });
+
+    const ec2Data = await ec2Client.send(ec2Cmd);
+    const reservations = ec2Data.Reservations || [];
+    const instances = reservations.flatMap(r => r.Instances || []);
+
+    if (instances.length === 0) {
+      return new Response(JSON.stringify({ problems: [] }), { status: 200 });
+    }
+
+    // 5. Initialize CloudWatch client to analyze workload statistics
+    const cwClient = new CloudWatchClient({ region: 'us-east-1', credentials: awsCredentials });
+    
+    // Set dynamic 3-day query window limits
+    const endTime = new Date();
+    const startTime = new Date();
+    startTime.setDate(startTime.getDate() - 3);
+
+    const detectedProblems = [];
+
+    // Loop through each active server and check its utilization metrics
+    for (const instance of instances) {
+      const instanceId = instance.InstanceId;
+      const instanceType = instance.InstanceType;
+      
+      // Extract human-readable label if configured by the administrator
+      const nameTag = instance.Tags?.find(t => t.Key === 'Name');
+      const customName = nameTag ? nameTag.Value : 'unnamed-resource';
+
+      // Build specific query data vectors for current metric execution
+      const metricQuery = {
+        StartTime: startTime,
+        EndTime: endTime,
+        MetricDataQueries: [
+          {
+            Id: 'cpu_query',
+            MetricStat: {
+              Metric: {
+                Namespace: 'AWS/EC2',
+                MetricName: 'CPUUtilization',
+                Dimensions: [{ Name: 'InstanceId', Value: instanceId }]
+              },
+              Period: 259200, // Total seconds in 3 days to aggregate a direct single average 
+              Stat: 'Average'
+            }
+          }
+        ]
+      };
+
+      const cwData = await cwClient.send(new GetMetricDataCommand(metricQuery));
+      const metricValues = cwData.MetricDataResults[0]?.Values || [];
+      const averageCpu = metricValues[0] !== undefined ? metricValues[0] : 0;
+
+      // 6. Flag the resource as an idle instance problem if average workload falls below 5%
+      if (averageCpu < 5) {
+        detectedProblems.push({
+          id: `idle-${instanceId}`,
+          resourceId: instanceId,
+          resourceName: customName,
+          type: 'idle_instance',
+          instanceType: instanceType,
+          estimatedSavings: estimateMonthlyCost(instanceType).toFixed(2),
+          daysIdle: 3,
+          riskLevel: 'low' // Requirement: Low risk mapping for idle instances
+        });
+      }
+    }
+
+    return new Response(JSON.stringify({ problems: detectedProblems }), { status: 200 });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+  }
+}
