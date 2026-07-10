@@ -1,0 +1,112 @@
+'use client';
+import { useState } from 'react';
+import { supabase } from '../../../../lib/supabase';
+import Link from 'next/link';
+
+export default function ExportSettingsPage() {
+  const [processingFormat, setProcessingFormat] = useState(null);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const triggerDataDownload = async (targetFormat) => {
+    setProcessingFormat(targetFormat);
+    setError('');
+    setSuccess('');
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Active user session expired. Please sign in again.');
+
+      const response = await fetch('/api/settings/exports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: session.user.id, format: targetFormat })
+      });
+
+      if (!response.ok) throw new Error('Server encountered a compilation problem streaming your file.');
+
+      // Capture binary document blob to initiate browser-level save download sequences
+      const fileBlob = await response.blob();
+      const clientDownloadUrl = window.URL.createObjectURL(fileBlob);
+      const transparentLinkLink = document.createElement('a');
+      
+      transparentLinkLink.href = clientDownloadUrl;
+      transparentLinkLink.setAttribute('download', response.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') || `cloudshield_report.${targetFormat}`);
+      
+      document.body.appendChild(transparentLinkLink);
+      transparentLinkLink.click();
+      
+      // Cleanup garbage allocations from system runtime pools
+      transparentLinkLink.parentNode.removeChild(transparentLinkLink);
+      window.URL.revokeObjectURL(clientDownloadUrl);
+
+      setSuccess(`Your workspace operational logs compiled into ${targetFormat.toUpperCase()} successfully.`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setProcessingFormat(null);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-white text-slate-900 pt-16 pb-12 px-8 max-w-4xl mx-auto">
+      
+      <div className="mb-8">
+        <Link href="/feed" className="text-sm font-semibold text-slate-500 hover:text-slate-900 transition-colors">
+          ← Back to primary feed stream
+        </Link>
+      </div>
+
+      <div className="border-b border-slate-100 pb-8">
+        <h1 className="text-3xl font-bold tracking-tight">Executive Reports & Data Exports</h1>
+        <p className="text-sm text-slate-500 mt-2 max-w-2xl">
+          Extract unified snapshots of all uncovered system optimization metrics, budget variables, and environment waste parameters for accounting reviews or external analysis.
+        </p>
+      </div>
+
+      <div className="mt-12 max-w-xl space-y-6">
+        {error && <div className="p-3 bg-red-50 text-red-600 rounded text-sm">{error}</div>}
+        {success && <div className="p-3 bg-green-50 text-green-700 rounded text-sm font-medium">{success}</div>}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          
+          {/* Card Trigger 1: Flat CSV Files */}
+          <div className="p-5 border border-slate-200 rounded-lg flex flex-col justify-between space-y-4 shadow-sm">
+            <div>
+              <span className="block font-bold text-slate-900 text-base">Comma-Separated Values (CSV)</span>
+              <span className="block text-xs text-slate-400 mt-1 leading-relaxed">
+                Best choice for spreadsheets, direct finance reconciliations, and populating tables in legacy office tools.
+              </span>
+            </div>
+            <button
+              onClick={() => triggerDataDownload('csv')}
+              disabled={processingFormat !== null}
+              className="w-full text-center py-2 px-4 rounded-md text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 transition-colors shadow-sm"
+            >
+              {processingFormat === 'csv' ? 'Compiling layout rows...' : 'Download Spreadsheet'}
+            </button>
+          </div>
+
+          {/* Card Trigger 2: Structured JSON Arrays */}
+          <div className="p-5 border border-slate-200 rounded-lg flex flex-col justify-between space-y-4 shadow-sm">
+            <div>
+              <span className="block font-bold text-slate-900 text-base">Structured JSON Map</span>
+              <span className="block text-xs text-slate-400 mt-1 leading-relaxed">
+                Ideal formatting option for developers feeding metrics straight into custom dashboards or parsing text files via scripts.
+              </span>
+            </div>
+            <button
+              onClick={() => triggerDataDownload('json')}
+              disabled={processingFormat !== null}
+              className="w-full text-center py-2 px-4 rounded-md text-xs font-semibold text-slate-900 bg-slate-100 hover:bg-slate-200 disabled:bg-slate-50 disabled:text-slate-400 transition-colors"
+            >
+              {processingFormat === 'json' ? 'Structuring array mapping...' : 'Download Data Schema'}
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  );
+}
