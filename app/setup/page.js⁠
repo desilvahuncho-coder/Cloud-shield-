@@ -1,0 +1,181 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+
+export default function AWSSetupPage() {
+  const router = useRouter();
+  const supabase = createClientComponentClient();
+
+  const [orgId, setOrgId] = useState("");
+  const [roleArn, setRoleArn] = useState("");
+  const [externalId, setExternalId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  // 1. Resolve current user's Organization on load to secure multi-tenant boundary
+  useEffect(() => {
+    async function resolveTenantContext() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          router.push("/login");
+          return;
+        }
+
+        // Pull the logged-in user seat's organization mapping
+        const { data: userData, error: userErr } = await supabase
+          .from("users")
+          .select("organization_id")
+          .eq("id", session.user.id)
+          .single();
+
+        if (userErr || !userData) {
+          throw new Error("Unable to identify your business account profile.");
+        }
+
+        setOrgId(userData.organization_id);
+
+        // Generate a cryptographically secure, randomized External ID for this tenant
+        // This prevents the "Confused Deputy" security exploit on AWS STS pipelines
+        const secureToken = `CloudShield_${userData.organization_id.split("-")[0]}_${crypto.randomUUID().split("-")[0]}`;
+        setExternalId(secureToken);
+
+      } catch (err) {
+        setMessage(err.message || "An unexpected error occurred during setup.");
+      } finally {
+        setLoading(false);
+      }
+    }
+    resolveTenantContext();
+  }, [router, supabase]);
+
+  // 2. Submit credentials to Supabase organization profile securely
+  async function handleRegisterConnection(e) {
+    e.preventDefault();
+    setSaving(true);
+    setMessage("");
+
+    try {
+      if (!roleArn.startsWith("arn:aws:iam::")) {
+        throw new Error("Please check your Role ARN. It should start with 'arn:aws:iam::'");
+      }
+
+      const { error: upsertErr } = await supabase
+        .from("aws_connections")
+        .upsert({
+          organization_id: orgId,
+          iam_role_arn: roleArn,
+          external_id: externalId,
+          updated_at: new Date().toISOString()
+        }, { onConflict: "organization_id" });
+
+      if (upsertErr) throw new Error("Could not register connection parameters. Try again.");
+
+      // Success! Send them directly to their freshly loaded problem feed
+      router.refresh();
+      router.push("/");
+
+    } catch (err) {
+      setMessage(err.message);
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white text-gray-900 flex items-center justify-center font-sans">
+        <p className="text-sm tracking-wide text-gray-400">Securing environment keys...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-white text-gray-900 font-sans antialiased px-6 py-16 max-w-2xl mx-auto">
+      
+      <div className="mb-12">
+        <h1 className="text-3xl font-light tracking-tight text-gray-900 mb-2">Connect Your Cloud Account</h1>
+        <p className="text-sm text-gray-400 leading-relaxed font-light">
+          We only need a secure, read-only handshake to scan for idle servers and billing spikes. We cannot read your database files, delete services, or view user passwords.
+        </p>
+      </div>
+
+      {message && (
+        <div className="mb-8 p-4 bg-amber-50 text-amber-800 border border-amber-100 rounded text-sm font-light">
+          {message}
+        </div>
+      )}
+
+      {/* STEP-BY-STEP COPY-PASTE AWS INSTRUCTIONS */}
+      <section className="mb-12 border-b border-gray-100 pb-12">
+        <h2 className="text-xs tracking-wider text-gray-400 uppercase font-medium mb-6">How to complete this setup in AWS (60 seconds)</h2>
+        
+        <div className="space-y-6 text-sm text-gray-600 font-light leading-relaxed">
+          <div>
+            <p className="font-medium text-gray-900 mb-1">1. Open your AWS Console and create a new IAM Role</p>
+            <p>Select **Another AWS Account** as the trusted entity type. Enter our application's central AWS ID: <code className="bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-900 rounded">123456789012</code></p>
+          </div>
+
+          <div>
+            <p className="font-medium text-gray-900 mb-1">2. Enforce our randomized secure handshake key</p>
+            <p>Check the box that says **"Require External ID"** and paste this unique key exactly:</p>
+            <div className="mt-2 p-3 bg-gray-50 border border-gray-100 font-mono text-xs text-gray-900 flex justify-between items-center select-all">
+              {externalId}
+            </div>
+          </div>
+
+          <div>
+            <p className="font-medium text-gray-900 mb-1">3. Paste this trust policy block into your AWS role relationship config</p>
+            <pre className="mt-2 p-4 bg-gray-900 text-gray-100 rounded text-xs font-mono overflow-x-auto leading-relaxed">
+{`{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::123456789012:root"
+      },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "StringEquals": {
+          "sts:ExternalId": "${externalId}"
+        }
+      }
+    }
+  ]
+}`}
+            </pre>
+          </div>
+        </div>
+      </section>
+
+      {/* METADATA FORM INPUT SECTION */}
+      <form onSubmit={handleRegisterConnection} className="space-y-8">
+        <div>
+          <label className="block text-xs tracking-wider text-gray-400 uppercase mb-2 font-medium">
+            Your AWS Role Resource String (ARN)
+          </label>
+          <input
+            type="text"
+            required
+            placeholder="arn:aws:iam::123456789012:role/CloudShieldAccess"
+            value={roleArn}
+            onChange={(e) => setRoleArn(e.target.value)}
+            className="w-full px-4 py-3 border border-gray-200 text-gray-900 placeholder-gray-300 focus:outline-none focus:border-gray-900 transition-colors text-sm font-light rounded-none font-mono"
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={saving}
+          className="w-full bg-gray-900 hover:bg-gray-800 text-white py-4 px-4 text-sm font-medium tracking-wide transition-colors disabled:bg-gray-400"
+        >
+          {saving ? "Registering secure connection handshake..." : "Connect and Launch My Feed"}
+        </button>
+      </form>
+
+    </div>
+  );
+}
