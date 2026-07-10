@@ -1,0 +1,140 @@
+'use client';
+import { useState, useEffect } from 'react';
+import { supabase } from '../../../lib/supabase';
+import { useRouter } from 'next/navigation';
+
+export default function ConnectAwsPage() {
+  const [awsAccountId, setAwsAccountId] = useState('');
+  const [awsRoleArn, setAwsRoleArn] = useState('');
+  const [userId, setUserId] = useState(null);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
+
+  useEffect(() => {
+    // Collect session details to supply backend confirmation checks safely
+    const getUserSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) setUserId(session.user.id);
+    };
+    getUserSession();
+  }, []);
+
+  const handleConnect = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess(false);
+    setLoading(true);
+
+    try {
+      const response = await fetch('/api/aws/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          awsAccountId,
+          awsRoleArn,
+          adminUserId: userId,
+        }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Connection failed.');
+
+      setSuccess(true);
+      setTimeout(() => router.push('/feed'), 1500);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-white text-slate-900 py-12 px-6 max-w-2xl mx-auto">
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Connect to your Cloud Account</h1>
+          <p className="mt-2 text-slate-500">
+            Grant CloudShield access to analyze data usage and flag potential waste trends automatically.
+          </p>
+        </div>
+
+        <hr className="border-slate-200" />
+
+        {/* Informative Scoped Security Policies Display Panel */}
+        <div className="space-y-4 bg-slate-50 p-6 rounded-md border border-slate-100 text-sm">
+          <h2 className="font-semibold text-slate-800 text-base">Required Connection Policies</h2>
+          <p className="text-slate-600">
+            Please attach these two distinct policy statements inside your cloud console setting screen to permit safe access:
+          </p>
+          
+          <div className="space-y-3">
+            <div>
+              <span className="block font-medium text-slate-700">1. Reading Authorization Policy (Analyzes usage metrics)</span>
+              <pre className="mt-1 block p-3 bg-white border border-slate-200 rounded text-xs text-slate-600 overflow-x-auto">
+{`"Action": [
+  "ce:GetCostAndUsage",
+  "ce:GetCostForecast",
+  "ce:GetAnomalies",
+  "ec2:DescribeInstances",
+  "cloudwatch:GetMetricData"
+]`}
+              </pre>
+            </div>
+
+            <div>
+              <span className="block font-medium text-slate-700">2. Active Action Optimization Policy (Pauses idle systems)</span>
+              <pre className="mt-1 block p-3 bg-white border border-slate-200 rounded text-xs text-slate-600 overflow-x-auto">
+{`"Action": [
+  "ec2:StopInstances",
+  "ec2:StartInstances"
+]`}
+              </pre>
+            </div>
+          </div>
+        </div>
+
+        {/* Connection Setup Forms Handling Fields */}
+        <form onSubmit={handleConnect} className="space-y-6 pt-2">
+          {error && <div className="p-3 bg-red-50 text-red-600 rounded text-sm">{error}</div>}
+          {success && <div className="p-3 bg-green-50 text-green-700 rounded text-sm">Connection successfully established! Redirecting...</div>}
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700">Cloud Account ID</label>
+              <input
+                type="text"
+                required
+                placeholder="12-digit account number"
+                className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-slate-500 focus:border-slate-500 text-sm"
+                value={awsAccountId}
+                onChange={(e) => setAwsAccountId(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700">Connection Code</label>
+              <input
+                type="text"
+                required
+                placeholder="Paste the connection code from your AWS account here"
+                className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-slate-500 focus:border-slate-500 text-sm"
+                value={awsRoleArn}
+                onChange={(e) => setAwsRoleArn(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400"
+          >
+            {loading ? 'Verifying Cloud Connection Access...' : 'Connect Cloud Account'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
