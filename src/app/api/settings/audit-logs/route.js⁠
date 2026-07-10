@@ -1,0 +1,50 @@
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+/**
+ * Handles retrieving immutable workspace activity logs
+ */
+export async function POST(request) {
+  try {
+    const { userId, action } = await request.json();
+
+    if (!userId) {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), { status: 401 });
+    }
+
+    // 1. Verify user profile and extract organization scope
+    const { data: userProfile, error: profileErr } = await supabaseAdmin
+      .from('users')
+      .select('organization_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileErr || !userProfile) {
+      return new Response(JSON.stringify({ error: 'Access denied: Profile validation failed.' }), { status: 403 });
+    }
+
+    const orgId = userProfile.organization_id;
+
+    // 2. Action block: Fetch chronological event trail
+    if (action === 'LIST') {
+      const { data: logs, error: fetchErr } = await supabaseAdmin
+        .from('audit_logs')
+        .select('id, actor_email, action_type, description, created_at')
+        .eq('organization_id', orgId)
+        .order('created_at', { ascending: false })
+        .limit(100); // Caps initial payload for performance optimization
+
+      if (fetchErr) throw fetchErr;
+      return new Response(JSON.stringify({ logs }), { status: 200 });
+    }
+
+    return new Response(JSON.stringify({ error: 'Invalid operation requested.' }), { status: 400 });
+
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+  }
+}
