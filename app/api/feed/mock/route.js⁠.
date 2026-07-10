@@ -1,0 +1,56 @@
+import { NextResponse } from "next/server";
+
+export async function GET() {
+  // Hardcoded to mimic real AWS diagnostics, providing immediate UI satisfaction for demo flows
+  const demoData = {
+    metrics: {
+      totalSavingsPotential: 1320.50,
+      activeAnomalies: 4,
+      systemHealthScore: 82
+    },
+    problems: [
+      {
+        id: "mock-spike-1",
+        type: "spike",
+        title: "Your primary database storage charges jumped unexpectedly",
+        description: "Your storage systems spent $42.10 today compared to its usual rolling baseline of $4.50/day. This pacing indicates an active, runaway query cycle.",
+        risk: "red",
+        structuralTarget: "Database-Storage-Core-Production",
+        savings: 1128.00,
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: "mock-idle-2",
+        type: "idle",
+        title: "A testing machine named 'staging-sandbox-1' has sat completely unused for 3 days",
+        description: "This processing core has registered zero traffic or computation patterns. Putting it to sleep stops active funding leak behaviors immediately.",
+        risk: "amber",
+        structuralTarget: "i-0abc123simulatedid",
+        savings: 45.00,
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: "mock-idle-3",
+        type: "idle",
+        title: "An image compression system named 'image-processor-old' is idle",
+        description: "This background computer has stayed at maximum resting capacity without handling active traffic queues. Safely shutting it down stops passive runtime costs.",
+        risk: "amber",
+        structuralTarget: "i-0def456simulatedid",
+        savings: 32.50,
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: "mock-spike-4",
+        type: "spike",
+        title: "Your log backup repository is tracking unexpected storage inflation",
+        description: "Your backup file systems are showing an overall running cost projection that sits $120.00 above normal trends registered last month.",
+        risk: "amber",
+        structuralTarget: "S3-Bucket-Data-Sync-Logs",
+        savings: 120.00,
+        createdAt: new Date().toISOString()
+      }
+    ]
+  };
+
+  return NextResponse.json(demoData);
+}
