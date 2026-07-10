@@ -1,0 +1,119 @@
+import { createClient } from "@/utils/supabase/server";
+import { NextResponse } from "next/server";
+
+export async function GET() {
+  const supabase = createClient();
+
+  // 1. Authenticate session context
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    // 2. Resolve organization context
+    const { data: profile } = await supabase
+      .from("users")
+      .select("organization_id")
+      .eq("id", session.user.id)
+      .single();
+
+    if (!profile) {
+      return NextResponse.json({ error: "Profile not found" }, { status: 404 });
+    }
+
+    // 3. Query the integration state
+    const { data: integration, error } = await supabase
+      .from("aws_integrations")
+      .select("id, aws_account_id, iam_role_arn, external_id, status, last_verified")
+      .eq("organization_id", profile.organization_id)
+      .single();
+
+    if (error && error.code !== "PGRST116") { // PGRST116 is Supabase code for 0 rows returned
+      throw error;
+    }
+
+    // If no integration exists, generate a stable, secure external ID for them to set up their IAM role
+    if (!integration) {
+      const generatedExternalId = `cs_${crypto.randomUUID()}`;
+      return NextResponse.json({
+        connected: false,
+        externalId: generatedExternalId
+      });
+    }
+
+    return NextResponse.json({
+      connected: true,
+      integration: {
+        ...integration,
+        // Partially mask details for security
+        aws_account_id: integration.aws_account_id.replace(/^(\d{8})/, "********")
+      }
+    });
+
+  } catch (err) {
+    console.error("Integration Fetch Error:", err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
+export async function POST(request) {
+  const supabase = createClient();
+
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const { awsAccountId, iamRoleArn, externalId } = await request.json();
+
+    if (!awsAccountId || !iamRoleArn || !externalId) {
+      return NextResponse.json({ error: "All integration parameters are required." }, { status: 400 });
+    }
+
+    // Basic AWS parameter format validations
+    if (!/^\d{12}$/.test(awsAccountId)) {
+      return NextResponse.json({ error: "AWS Account ID must be exactly 12 digits." }, { status: 400 });
+    }
+
+    if (!iamRoleArn.startsWith("arn:aws:iam::")) {
+      return NextResponse.json({ error: "Invalid IAM Role ARN format." }, { status: 400 });
+    }
+
+    // Resolve organization context
+    const { data: profile } = await supabase
+      .from("users")
+      .select("organization_id")
+      .eq("id", session.user.id)
+      .single();
+
+    if (!profile) {
+      return NextResponse.json({ error: "Profile context missing" }, { status: 404 });
+    }
+
+    // Save or update the AWS connection. 
+    // This status starts as "pending" until our backend validates the connection in a later step.
+    const { error: upsertError } = await supabase
+      .from("aws_integrations")
+      .upsert({
+        organization_id: profile.organization_id,
+        aws_account_id: awsAccountId,
+        iam_role_arn: iamRoleArn,
+        external_id: externalId,
+        status: "pending",
+        last_verified: new Date().toISOString()
+      }, { onConflict: "organization_id" });
+
+    if (upsertError) throw upsertError;
+
+    return NextResponse.json({ 
+      success: true, 
+      message: "AWS credentials successfully registered." 
+    });
+
+  } catch (err) {
+    console.error("Integration Save Error:", err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
